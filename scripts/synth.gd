@@ -6,11 +6,13 @@ var voices: Array[AudioStreamPlayer] = []
 var voice_index := 0
 var muted := false
 var break_cooldown := 0.0
+var variation_rng := RandomNumberGenerator.new()
 
 func _process(delta: float) -> void:
 	break_cooldown = maxf(0, break_cooldown - delta)
 
 func _ready() -> void:
+	variation_rng.randomize()
 	for i in range(8):
 		var voice := AudioStreamPlayer.new()
 		voice.volume_db = -15.0
@@ -25,10 +27,30 @@ func _ready() -> void:
 	sounds.sell = make_sound(550, 0.32, 0.02, 660)
 	sounds.death = make_sound(230, 0.65, 0.3, -190)
 	sounds.death_shake = make_sound(105, 0.12, 0.6, -70)
+	sounds.death_arc = make_sound(580, 0.65, 0.15, -540)
+	sounds.departure_close = make_sound(210, 0.55, 0.18, 680)
+	sounds.discard = make_sound(430, 0.14, 0.48, -340)
+	sounds.departure_float = make_sound(260, 0.65, 0.03, 620)
+	sounds.enemy_hit = make_sound(165, 0.22, 0.72, -115)
 	sounds.step = make_sound(115, 0.035, 0.78, -50)
 	sounds.land = make_sound(95, 0.18, 0.55, -65)
 	sounds.coin = make_sound(880, 0.06, 0.01, 250)
 	sounds.purchase = make_sound(440, 0.15, 0.02, 440)
+	sounds.discovery_ore = make_chime([660.0, 880.0, 1100.0], 0.08)
+	sounds.discovery_animal = make_chime([440.0, 554.0, 660.0], 0.10)
+	sounds.discovery_milestone = make_chime([523.0, 659.0, 784.0, 1046.0], 0.10)
+	sounds.depth_record = make_chime([392.0, 523.0, 659.0, 784.0], 0.11)
+	sounds.goal_ready = make_chime([660.0, 990.0], 0.10)
+
+func make_chime(notes: Array, note_length: float) -> AudioStreamWAV:
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = 22050
+	var samples := PackedByteArray()
+	for note in notes:
+		samples.append_array(make_sound(float(note), note_length, 0.01, float(note) * 0.06).data)
+	stream.data = samples
+	return stream
 
 func make_sound(frequency: float, duration: float, noise: float, sweep: float) -> AudioStreamWAV:
 	var stream := AudioStreamWAV.new()
@@ -57,6 +79,9 @@ func play_sound(sound: String, gain_db: float = 0.0, pitch: float = 1.0) -> void
 		if break_cooldown > 0:
 			return
 		break_cooldown = 0.2
+	if sound == "death_shake":
+		# Generate a fresh rattling impact for each shake rather than repitching one clip.
+		sounds.death_shake = make_sound(variation_rng.randf_range(90, 165), variation_rng.randf_range(0.10, 0.17), variation_rng.randf_range(0.4, 0.75), variation_rng.randf_range(-110, -45))
 	var voice := voices[voice_index % voices.size()]
 	voice_index += 1
 	voice.volume_db = -15.0 + gain_db

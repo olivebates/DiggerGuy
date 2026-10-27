@@ -16,6 +16,9 @@ func _initialize() -> void:
 func run() -> void:
 	game = load("res://scenes/game.tscn").instantiate()
 	game.test_mode = true
+	game.speed_learned = true
+	game.freeze_learned = true
+	game.placement_taught = true
 	root.add_child(game)
 	game.set_physics_process(false)
 	game.synth.muted = true
@@ -23,8 +26,8 @@ func run() -> void:
 	game.upgrades.freeze = 1
 	game.upgrades.speed = 3
 	game.selected_speed = 4
-	check(game.inventory.size() == 15, "15 ore inventory slots")
-	check(MineCatalog.ENEMIES.size() == 10, "10 enemy species")
+	check(game.inventory.size() == 45, "45 ore inventory slots")
+	check(MineCatalog.ENEMIES.size() == 40, "40 enemy species")
 	check(game.mode == "playing", "Main scene starts a run")
 	test_generation()
 	test_mining()
@@ -67,7 +70,7 @@ func test_generation() -> void:
 	world.reset(2200, 1122)
 	var eternium := false
 	for seed_value in range(1, 25):
-		world.reset(2200, seed_value)
+		world.reset(5400, seed_value)
 		for block in world.blocks.values():
 			if block.ore == 14:
 				eternium = true
@@ -83,6 +86,10 @@ func test_generation() -> void:
 
 func setup_mining() -> Vector2:
 	game.start_run()
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	game._input(release)
 	game.world.blocks.clear()
 	game.world.lava.clear()
 	game.enemies.clear()
@@ -208,14 +215,14 @@ func test_inventory_and_economy() -> void:
 	game.sell_ores()
 	check(game.credits == 92 and game.inventory_count() == 0, "Selling pays correct ore values")
 	game.buy_upgrade(2)
-	check(game.capacity() == 8 and game.credits == 62, "Capacity purchase charges 30 and adds one space")
+	check(game.capacity() == 8 and game.credits == 72, "Capacity purchase charges 20 and adds one space")
 	game.buy_upgrade(1)
-	check(game.upgrades.power == 0 and game.credits == 62, "Unaffordable purchases do not charge")
+	check(game.upgrades.power == 0 and game.credits == 72, "Unaffordable purchases do not charge")
 	game.credits = 1000
 	game.buy_upgrade(0)
-	check(game.selected_depth == 20, "Starting depth upgrade selects unlocked depth")
+	check(game.selected_depth == 10, "Starting depth upgrade selects unlocked depth")
 	game.start_run()
-	check(game.world.base_depth == 20, "New expedition starts in purchased stratum")
+	check(game.world.base_depth == 10, "New expedition starts in purchased stratum")
 	game.inventory.fill(0)
 	game.inventory[0] = 10
 	game.inventory[13] = 2
@@ -228,7 +235,7 @@ func test_inventory_and_economy() -> void:
 	game._physics_process(1)
 	check(game.mode == "dying" and game.world.scroll == scroll, "Death animation freezes mine")
 	game._physics_process(game.death_duration())
-	check(game.mode == "depot", "Death animation transitions to separate depot scene")
+	check(game.mode == "results", "Death animation transitions to expedition results")
 	game.inventory.fill(1)
 	game.upgrades.insurance = 2
 	var kept: Array[int] = game.retained_inventory()
@@ -236,7 +243,7 @@ func test_inventory_and_economy() -> void:
 	for amount in kept:
 		count += amount
 	check(count == 5, "Two save upgrades preserve five rare pieces")
-	game.upgrades.insurance = 12
+	game.upgrades.insurance = 42
 	check(game.retained_inventory() == game.inventory, "Maximum insurance retains all ore")
 	game.test_mode = false
 	game.save_progress()
@@ -244,8 +251,11 @@ func test_inventory_and_economy() -> void:
 	game.upgrades.insurance = 0
 	game.inventory.fill(0)
 	game.load_progress()
-	check(game.credits == 940 and game.upgrades.insurance == 12 and game.inventory_count() == 15, "Credits, upgrades, and ores survive save/load")
+	check(game.credits == 940 and game.upgrades.insurance == 42 and game.inventory_count() == 45, "Credits, upgrades, and ores survive save/load")
 	game.test_mode = true
+	game.speed_learned = true
+	game.freeze_learned = true
+	game.placement_taught = true
 
 func test_enemy_simulation() -> void:
 	game.selected_depth = 2200
@@ -278,7 +288,7 @@ func test_revision_regressions() -> void:
 			if block.ore >= 0:
 				ore_count += 1
 	var density := float(ore_count) / rock_count
-	check(density > 0.055 and density < 0.065, "Ore density is approximately 6%, twice its previous frequency")
+	check(density > 0.09 and density < 0.14, "Ore density includes the additional single deposits")
 	check(layouts.size() == 80, "Different seeds produce different cave layouts, beyond ore/color variation")
 	world.reset(0)
 	var first_layout: Array = world.blocks.keys()
@@ -356,9 +366,9 @@ func test_revision_regressions() -> void:
 		game.enemies.clear()
 		for x in range(MineWorld.COLS):
 			game.world.blocks[Vector2i(x, 0)] = {"hp": 2, "ore": -1, "variant": 0}
-		game.player = Vector2(240, 192)
+		game.player = Vector2(240, MineWorld.START_Y - 16)
 		game.player_velocity = Vector2.ZERO
-		game.enemies.append({"pos": Vector2(64, 196), "vel": Vector2.ZERO, "type": 1, "dir": 1, "clock": 0.0, "ground": true, "anchor": 64.0})
+		game.enemies.append({"pos": Vector2(64, MineWorld.START_Y - 12), "vel": Vector2.ZERO, "type": 1, "dir": 1, "clock": 0.0, "ground": true, "anchor": 64.0})
 		var stable := true
 		for frame in range(fps * 2):
 			var delta: float = 1.0 / fps
@@ -366,7 +376,7 @@ func test_revision_regressions() -> void:
 			game.player.y -= 4.5 * delta
 			game.update_player(delta)
 			game.update_enemies(delta, 4.5)
-			var surface: float = 208 - game.world.scroll
+			var surface: float = MineWorld.START_Y - game.world.scroll
 			if absf(game.player.y + 16 - surface) > 0.001 or not game.grounded:
 				stable = false
 			if absf(game.enemies[0].pos.y + 12 - surface) > 0.001 or not game.enemies[0].ground:
@@ -383,7 +393,7 @@ func flat_test_world(floor_row: int = 4) -> void:
 	game.enemies.clear()
 	for x in range(MineWorld.COLS):
 		game.world.blocks[Vector2i(x, floor_row)] = {"hp": 2, "ore": -1, "variant": 0}
-	game.player = Vector2(200, 208 + floor_row * MineWorld.TILE - 16)
+	game.player = Vector2(200, MineWorld.START_Y + floor_row * MineWorld.TILE - 16)
 	game.grounded = true
 
 func landing_sample(distance: float) -> Dictionary:
@@ -528,7 +538,7 @@ func test_room_generation() -> void:
 	check(short_drops, "Generated shelves limit uninterrupted vertical openings to five blocks across 100 mines")
 	check(valid_veins and connected_veins, "Ore veins contain two to five connected blocks of one depth-appropriate ore")
 	var density := float(ore_count) / rock_count
-	check(density > 0.055 and density < 0.065, "Clustered ores have an overall 6% density")
+	check(density > 0.09 and density < 0.14, "Veins and single deposits have the expected combined density")
 	check(valid_spawns, "Walking enemies spawn on floors and flying enemies in open spaces away from lava")
 	check(valid_basins and dry_route, "Lava starts in supported basins on the riskier side, leaving the alternate route dry")
 	check(not prop_kinds.has("roots") and prop_kinds.has("slate") and prop_kinds.has("crystal") and prop_kinds.has("ember"), "Depth regions have mineral formations without underground grass")
@@ -598,14 +608,13 @@ func test_depot_and_color_updates() -> void:
 	game.depot._input(click)
 	check(game.inventory_count() == 0 and game.credits == wallet_before + value, "Sell All clears the haul and pays exactly once")
 	check(game.depot.sale_flights.size() == 9 and game.depot.displayed_credits == wallet_before, "Every sold piece starts a flight and the visible counter begins at its old value")
-	check(game.depot.primary_label() == "Sell All" and game.depot.is_selling(), "Sell All remains reserved while the sale animation runs")
-	game.depot.activate_primary()
+	check(game.depot.primary_label() == "Dig Deeper" and game.depot.is_selling(), "Dig Deeper replaces Sell All during the sale")
 	game.depot.open_shop()
 	check(game.mode == "depot" and game.depot.screen == "shop" and game.credits == wallet_before + value, "Shop can open during a sale without duplicating credits")
 	game.depot.advance_sale(0.7)
 	check(game.depot.displayed_credits >= wallet_before and game.depot.displayed_credits <= game.credits, "Visible coin count rises as sale flights arrive")
 	game.depot.advance_sale(1)
-	check(not game.depot.is_selling() and game.depot.displayed_credits == game.credits and game.depot.primary_label() == "Sell All", "Completing the sale matches the wallet while Sell All keeps its own reserved slot")
+	check(not game.depot.is_selling() and game.depot.displayed_credits == game.credits and game.depot.primary_label() == "Dig Deeper", "Completing the sale matches the wallet with Dig Deeper available")
 	game.depot._process(0.4)
 	click.position = game.depot.dive_rect.get_center()
 	game.depot._input(click)
@@ -695,14 +704,14 @@ func test_speed_spikes_and_new_death() -> void:
 	click.position = game.home_rect.get_center()
 	game._input(click)
 	game._physics_process(game.DEPARTURE_END + 0.01)
-	check(game.mode == "depot", "Leave icon returns after the extraction animation")
+	check(game.mode == "results", "Leave icon opens results after the extraction animation")
 	flat_test_world()
 	for x in range(7, MineWorld.COLS):
 		game.world.blocks.erase(Vector2i(x, 4))
 	var hesitations := 0
 	var rolled_once := true
 	for seed_value in range(1, 601):
-		game.player = Vector2(234, 320)
+		game.player = Vector2(234, 384)
 		game.player_velocity = Vector2(game.WALK_SPEED, 0)
 		game.direction = 1
 		game.grounded = true
@@ -753,10 +762,10 @@ func test_speed_spikes_and_new_death() -> void:
 	world.hit(cell, 1)
 	check(world.floor_spikes.has(cell), "Cracking the support leaves its spikes in place")
 	world.hit(cell, 1)
-	check(not world.floor_spikes.has(cell) and not world.touches_floor_spikes(contact), "Destroying a supporting block removes its spikes")
+	check(world.blocks.has(cell) and world.floor_spikes.has(cell) and world.touches_floor_spikes(contact), "Spike support blocks are indestructible")
 	flat_test_world()
 	game.world.floor_spikes[Vector2i(6, 4)] = {"height": 10.0}
-	game.player = Vector2(207, 320)
+	game.player = Vector2(207, 384)
 	game.update_player(1.0 / 60)
 	check(game.mode == "dying", "Touching block-top spikes kills the miner")
 	flat_test_world()
@@ -793,5 +802,5 @@ func test_speed_spikes_and_new_death() -> void:
 	game._physics_process(game.death_duration() - game.death_time - 0.02)
 	check(game.mode == "dying" and game.death_iris_progress() == 1, "Transition reaches complete black before switching scenes")
 	game._physics_process(0.03)
-	check(game.mode == "depot" and game.depot.visible and game.depot.screen == "depot", "Death cuts straight to the depot after the closing circle")
+	check(game.mode == "results" and game.results.visible and not game.depot.visible, "Death opens results before depot after the closing circle")
 	game.synth.muted = true

@@ -23,7 +23,12 @@ func _draw() -> void:
 			draw_set_transform(Vector2(cell.x * TILE + 16, 16), 0, Vector2.ONE * BOARD_ZOOM * size)
 			pos = Vector2(-8, -8)
 		var block: Dictionary = world.blocks[cell]
+		var shake_age: float = game.block_shakes.get(cell, 0.0)
+		if shake_age > 0:
+			pos.x += roundf(sin(shake_age * 100) * 1.5 * shake_age / 0.18)
 		var base := MineWorld.block_color(cell, world.base_depth)
+		if block.get("indestructible", false) or world.floor_spikes.has(cell):
+			base = Color("a3a6aa")
 		draw_rect(Rect2(pos, Vector2(16, 16)), base.darkened(0.48))
 		# Borders and bevels occupy whole pixels in the shared 16x16 tile grid.
 		draw_rect(Rect2(pos + Vector2(1, 1), Vector2(14, 14)), base)
@@ -42,7 +47,10 @@ func _draw() -> void:
 			MineCatalog.ore_shape(self, pos + Vector2(8, 8), block.ore, 0.75, float(block.variant) * TAU / 7.0)
 			if block.ore >= 8:
 				draw_circle(pos + Vector2(12, 4), 0.9, MineCatalog.ore_color(block.ore).lightened(0.6))
-		if block.hp == 1:
+		if block.get("treasure", false):
+			draw_rect(Rect2(pos + Vector2(2, 2), Vector2(12, 12)), Color("e5c565"), false, 1)
+			draw_rect(Rect2(pos + Vector2(7, 5), Vector2(2, 6)), Color("ffe5a0"))
+		if block.hp < block.get("max_hp", 2):
 			var crack := Color("201f20")
 			draw_polyline(PackedVector2Array([pos + Vector2(3, 0), pos + Vector2(6, 5), pos + Vector2(4, 9), pos + Vector2(10, 12), pos + Vector2(9, 16)]), crack, 1.2)
 			draw_polyline(PackedVector2Array([pos + Vector2(6, 5), pos + Vector2(11, 6), pos + Vector2(16, 3)]), crack, 1)

@@ -6,6 +6,7 @@ const PIXEL := 2.0
 const COLS := 15
 const ORE_CHANCE := 0.06
 const TOP := 128.0
+const START_Y := 272.0
 const BOTTOM := 800.0
 const GENERATION_MARGIN := 50
 const MAX_OPEN_DROP := 5
@@ -88,6 +89,9 @@ static func block_color(cell: Vector2i, starting_depth: int) -> Color:
 	var variation := posmod((cell.x * 73856093) ^ COLOR_SEED, 7) - 3
 	return region_color(starting_depth + cell.y, "rock").lightened(variation * 0.012)
 
+static func block_health(depth: int) -> int:
+	return 2 + maxi(0, depth) / 100
+
 func reset(start_depth: int, world_seed: int = 0) -> void:
 	blocks.clear()
 	lava.clear()
@@ -115,10 +119,10 @@ func reset(start_depth: int, world_seed: int = 0) -> void:
 	ensure_rows()
 
 func cell_at(pos: Vector2) -> Vector2i:
-	return Vector2i(floori(pos.x / TILE), floori((pos.y - 208.0 + scroll) / TILE))
+	return Vector2i(floori(pos.x / TILE), floori((pos.y - START_Y + scroll) / TILE))
 
 func cell_position(cell: Vector2i) -> Vector2:
-	return Vector2(cell.x * TILE, 208.0 + cell.y * TILE - scroll)
+	return Vector2(cell.x * TILE, START_Y + cell.y * TILE - scroll)
 
 func solid(cell: Vector2i) -> bool:
 	return cell.x < 0 or cell.x >= COLS or blocks.has(cell)
@@ -133,13 +137,13 @@ func collides(rect: Rect2) -> bool:
 	return false
 
 func ensure_rows() -> void:
-	var target := ceili((800 - 208 + scroll) / TILE) + GENERATION_MARGIN
+	var target := ceili((800 - START_Y + scroll) / TILE) + GENERATION_MARGIN
 	while last_row < target:
 		var start := last_row + 1
 		var height := rng.randi_range(18, 24)
 		generate_section(start, height)
 		last_row = start + height - 1
-	var oldest := floori((TOP - 208 + scroll) / TILE) - 5
+	var oldest := floori((TOP - START_Y + scroll) / TILE) - 5
 	if oldest == culled_row:
 		return
 	culled_row = oldest
@@ -192,6 +196,7 @@ func generate_section(start: int, height: int) -> void:
 	var safer_left := rng.randf() < 0.5
 	var safe_x := 3.5 if safer_left else 11.5
 	var risk_x := 11.0 if safer_left else 4.0
+	var treasure_cell := Vector2i(-1, -1)
 	var style := rng.randi_range(0, 4)
 	# Slate favors shafts, crystals favor angular branches, embers favor broad basins.
 	if region == 1 and rng.randf() < 0.55:
@@ -250,6 +255,13 @@ func generate_section(start: int, height: int) -> void:
 	exit_column = rng.randi_range(4, 10)
 	var exit_point := Vector2(exit_column + 0.5, height - 0.5)
 	carve_tunnel(mask, lower, exit_point, 1.05, height)
+	if depth >= 300 and rng.randf() < (0.28 if depth >= 4000 else 0.18):
+		var vault := Vector2(2.5 if safer_left else 12.5, height - 8.5)
+		add_room(mask, vault, Vector2(1.65, 1.45), "treasure", start, height)
+		carve_tunnel(mask, lower, vault, 0.8, height, false)
+		treasure_cell = Vector2i(floori(vault.x), floori(vault.y) + 1)
+		mask.erase(treasure_cell)
+		shelves[treasure_cell] = true
 	# Alternate supported steps along the safer route, leaving a side gap to dig around.
 	for node in safe_nodes:
 		var shelf := Vector2i(floori(node.x), floori(node.y) + 1)
@@ -313,13 +325,21 @@ func generate_section(start: int, height: int) -> void:
 			if mask.has(local):
 				generated_cave_cells += 1
 			else:
-				blocks[cell] = {"hp": 2, "ore": -1, "variant": rng.randi_range(0, 6), "shelf": shelves.has(local)}
+				var health := block_health(base_depth + cell.y)
+				blocks[cell] = {"hp": health, "max_hp": health, "ore": -1, "variant": rng.randi_range(0, 6), "shelf": shelves.has(local)}
 				section_rocks.append(cell)
 	for cell in basin:
 		lava[cell] = rng.randf_range(0.7, 0.95)
 	place_veins(section_rocks, chamber + Vector2(0, start), depth)
+	var cache_cell := treasure_cell + Vector2i(0, start)
+	if treasure_cell.x >= 0 and blocks.has(cache_cell):
+		blocks[cache_cell].treasure = true
+		blocks[cache_cell].treasure_coins = (20 + (base_depth + cache_cell.y) / 8) * (2 if depth >= 4000 else 1)
+		if blocks[cache_cell].ore < 0:
+			blocks[cache_cell].ore = choose_ore(base_depth + cache_cell.y)
 	place_decorations(start, height, region)
 	place_floor_spikes(start, height)
+	place_emeralds(section_rocks)
 	place_enemies(start, height, chamber + Vector2(0, start), radius)
 	sections.append({"start": start, "end": start + height - 1, "style": style, "safe_left": safer_left, "entry": entry + Vector2(0, start), "exit": exit_point + Vector2(0, start), "basin": basin})
 
@@ -332,6 +352,7 @@ func place_veins(rocks: Array[Vector2i], risk_center: Vector2, depth: int) -> vo
 		var swap: Vector2i = candidates[i]
 		candidates[i] = candidates[other]
 		candidates[other] = swap
+	var single_candidates := candidates.duplicate()
 	while remaining >= 2 and not candidates.is_empty():
 		var size := mini(5, remaining)
 		if remaining > 5:
@@ -371,26 +392,55 @@ func place_veins(rocks: Array[Vector2i], risk_center: Vector2, depth: int) -> vo
 			blocks[cell].vein = vein_sequence
 		veins.append({"id": vein_sequence, "cells": cluster, "ore": ore, "row": seed_cell.y})
 		remaining -= cluster.size()
+	# Three isolated ore deposits for every vein, in addition to vein ore.
+	var single_count := 0
+	# Count only veins seeded in this section's rock set.
+	for vein in veins:
+		if vein.cells[0] in rocks:
+			single_count += 3
+	for cell in single_candidates:
+		if single_count <= 0:
+			break
+		if blocks[cell].ore >= 0:
+			continue
+		var isolated := true
+		for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			if blocks.get(cell + offset, {}).get("ore", -1) >= 0:
+				isolated = false
+		if isolated:
+			blocks[cell].ore = choose_ore(depth)
+			blocks[cell].single = true
+			single_count -= 1
 
 func place_decorations(start: int, height: int, region: int) -> void:
-	if REGIONS[region].kind == "roots":
+	var section_depth := base_depth + start
+	if REGIONS[region].kind == "roots" and section_depth < 100:
 		return
 	for y in range(start + 1, start + height - 1):
 		for x in range(1, COLS - 1):
 			var cell := Vector2i(x, y)
 			if not solid(cell) and not lava.has(cell) and rng.randf() < 0.12:
+				var kind: String = REGIONS[region].kind
+				if section_depth >= 2600:
+					kind = "prism"
+				elif section_depth >= 1640:
+					kind = "spire"
+				elif section_depth < 220:
+					kind = "garden"
 				if solid(cell + Vector2i.UP):
-					decorations.append({"cell": cell, "kind": REGIONS[region].kind, "ceiling": true, "variant": rng.randf()})
+					decorations.append({"cell": cell, "kind": kind, "ceiling": true, "variant": rng.randf()})
 				elif solid(cell + Vector2i.DOWN):
-					decorations.append({"cell": cell, "kind": REGIONS[region].kind, "ceiling": false, "variant": rng.randf()})
+					decorations.append({"cell": cell, "kind": kind, "ceiling": false, "variant": rng.randf()})
 
 func place_floor_spikes(start: int, height: int) -> void:
 	for y in range(maxi(4, start + 1), start + height - 1):
 		for x in range(1, COLS - 1):
 			var cell := Vector2i(x, y)
 			var above := cell + Vector2i.UP
-			if solid(cell) and not solid(above) and not lava.has(above) and rng.randf() < FLOOR_SPIKE_CHANCE:
+			if solid(cell) and blocks[cell].ore < 0 and not blocks[cell].get("treasure", false) and not solid(above) and not lava.has(above) and rng.randf() < FLOOR_SPIKE_CHANCE:
 				floor_spikes[cell] = {"height": rng.randf_range(8, 11)}
+				blocks[cell].indestructible = true
+				blocks[cell].ore = -1
 
 func spike_triangles(cell: Vector2i) -> Array[PackedVector2Array]:
 	var result: Array[PackedVector2Array] = []
@@ -448,18 +498,29 @@ func place_enemies(start: int, height: int, chamber: Vector2, radius: Vector2) -
 		spawn_queue.append({"cell": cell, "type": enemy_type})
 		spots.erase(cell)
 func choose_ore(depth: int) -> int:
-	var highest := 1
+	var eligible: Array[int] = []
 	for i in range(MineCatalog.ORES.size()):
-		if depth >= MineCatalog.ORES[i].depth:
-			highest = i
+		# Emeralds have their own one-percent roll, outside veins and singles.
+		if i != 8 and depth >= MineCatalog.ORES[i].depth:
+			eligible.append(i)
+	eligible.sort_custom(func(a: int, b: int) -> bool: return MineCatalog.ORES[a].depth < MineCatalog.ORES[b].depth)
 	# Keep early ores present, but weight the newest unlocked ores more heavily.
-	if highest > 1 and rng.randf() < 0.60:
-		return rng.randi_range(maxi(0, highest - 3), highest)
-	return rng.randi_range(0, highest)
+	if eligible.size() > 2 and rng.randf() < 0.60:
+		return eligible[rng.randi_range(maxi(0, eligible.size() - 4), eligible.size() - 1)]
+	return eligible[rng.randi_range(0, eligible.size() - 1)]
+
+func place_emeralds(rocks: Array[Vector2i]) -> void:
+	for cell in rocks:
+		if base_depth + cell.y < 50 or blocks[cell].ore >= 0 or blocks[cell].get("indestructible", false):
+			continue
+		if rng.randf() < 0.01:
+			blocks[cell].ore = 8
 
 func hit(cell: Vector2i, damage: int) -> Dictionary:
 	if not blocks.has(cell):
 		return {}
+	if blocks[cell].get("indestructible", false) or floor_spikes.has(cell):
+		return {"damaged": true, "indestructible": true}
 	blocks[cell].hp -= damage
 	if blocks[cell].hp <= 0:
 		var destroyed: Dictionary = blocks[cell].duplicate()

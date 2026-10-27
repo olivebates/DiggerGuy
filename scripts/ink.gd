@@ -3,7 +3,7 @@ extends RefCounted
 
 const FONT = preload("res://PixelifySans.ttf")
 const PIXEL := 2.0
-const ICONS := ["block", "heart", "shield", "depth", "lock", "speed", "coin", "bag", "freeze", "home", "pick", "close", "arrow"]
+const ICONS := ["block", "heart", "shield", "depth", "lock", "speed", "coin", "bag", "freeze", "home", "pick", "close", "arrow", "trash"]
 const ICON_VARIANTS := 9
 static var icon_texture: Texture2D
 static var ring_textures: Dictionary = {}
@@ -89,6 +89,11 @@ static func ore_icon(canvas: CanvasItem, center: Vector2, index: int, scale_valu
 static func vector_icon(canvas: CanvasItem, kind: String, center: Vector2, color: Color = TEXT, scale_value: float = 1.0) -> void:
 	var s := scale_value
 	match kind:
+		"trash":
+			canvas.draw_rect(Rect2(center + Vector2(-5, -3) * s, Vector2(10, 11) * s), color, false, maxf(1, s))
+			canvas.draw_line(center + Vector2(-7, -6) * s, center + Vector2(7, -6) * s, color, maxf(1, s))
+			canvas.draw_rect(Rect2(center + Vector2(-2, -9) * s, Vector2(4, 3) * s), color)
+			canvas.draw_line(center + Vector2(0, -1) * s, center + Vector2(0, 5) * s, color, maxf(1, s))
 		"arrow":
 			canvas.draw_line(center + Vector2(-9, 0) * s, center + Vector2(9, 0) * s, color, maxf(1, s))
 			canvas.draw_polyline(PackedVector2Array([center + Vector2(3, -6) * s, center + Vector2(9, 0) * s, center + Vector2(3, 6) * s]), color, maxf(1, s))
