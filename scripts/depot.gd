@@ -29,6 +29,9 @@ var entrance_time := 0.0
 var coin_target := Vector2(348, 51)
 var confirm_rect := Rect2(96, 424, 288, 42)
 
+func local_mouse() -> Vector2:
+	return game.cursor_position - position
+
 func _process(delta: float) -> void:
 	if not visible or game == null:
 		return
@@ -44,14 +47,14 @@ func _process(delta: float) -> void:
 		wallet_visual = displayed_credits
 	for key in press_amount.keys():
 		press_amount[key] = maxf(0, press_amount[key] - delta * 12)
-	var mouse := get_global_mouse_position()
+	var mouse := local_mouse()
 	for key in ["primary", "nav", "dive"]:
 		var rect: Rect2 = primary_rect if key == "primary" else (dive_rect if key == "dive" else nav_rect())
-		hover_amount[key] = move_toward(float(hover_amount.get(key, 0)), 1.0 if rect.has_point(mouse) else 0.0, delta * 10)
+		hover_amount[key] = 1.0 if rect.has_point(mouse) else 0.0
 	for i in range(MineCatalog.UPGRADES.size()):
 		var key := "up%d" % i
 		var hovered := upgrade_rect(i).has_point(mouse - Vector2(content_offset(), 0)) and screen == "shop" and not has_popup()
-		hover_amount[key] = move_toward(float(hover_amount.get(key, 0)), 1.0 if hovered else 0.0, delta * 10)
+		hover_amount[key] = 1.0 if hovered else 0.0
 	queue_redraw()
 
 func show_depot(from_death: bool = false) -> void:
@@ -133,7 +136,7 @@ func slider_rect(kind: String) -> Rect2:
 func set_slider(kind: String, mouse_x: float) -> void:
 	var t := clampf((mouse_x - 188) / 246.0, 0, 1)
 	if kind == "depth":
-		game.selected_depth = roundi(t * game.upgrades.depth) * 100
+		game.selected_depth = roundi(t * game.upgrades.depth) * MineCatalog.DEPTH_STEP
 	else:
 		game.selected_speed = 1 + roundi(t * game.upgrades.speed)
 
@@ -237,8 +240,8 @@ func _input(event: InputEvent) -> void:
 func animated_button(rect: Rect2, label: String, key: String, primary: bool, enabled: bool = true) -> void:
 	var hover: float = hover_amount.get(key, 0)
 	var press: float = press_amount.get(key, 0)
-	var visual := rect.grow(hover)
-	visual.position.y += press * 2
+	var visual := rect
+	visual.position.y += 2 if press > 0 else 0
 	MineInk.button(self, visual, label, primary, hover > 0.05, enabled)
 
 func _draw() -> void:
@@ -272,6 +275,8 @@ func _draw() -> void:
 	if game.inventory_count() == 0 and not is_selling():
 		animated_button(dive_rect, "Dig Deeper", "dive", true)
 	draw_sale_flights()
+	if hovered_upgrade() >= 0:
+		draw_upgrade_tooltip(hovered_upgrade())
 	if has_popup():
 		draw_popup()
 
@@ -293,7 +298,7 @@ func draw_content(page: String, offset: float) -> void:
 				draw_rect(Rect2(MineInk.snap(rect.position), Vector2(392, 2)), MineInk.LINE)
 			var y := rect.get_center().y
 			var font_size := clampi(roundi(rect.size.y * 0.48), 11, 20)
-			MineCatalog.ore_shape(self, Vector2(62, y), ore, 1.15)
+			MineInk.ore_icon(self, Vector2(62, y), ore, 1.15)
 			var label := "%s ×%d" % [MineCatalog.ORES[ore].name, game.inventory[ore]]
 			MineInk.text(self, label.left(characters), Vector2(86, y + font_size * 0.35), font_size)
 			var value := str(game.inventory[ore] * MineCatalog.ORES[ore].value)
@@ -305,21 +310,21 @@ func draw_content(page: String, offset: float) -> void:
 	draw_set_transform(Vector2.ZERO)
 
 func draw_shop() -> void:
-	var mouse := get_global_mouse_position() - Vector2(content_offset(), 0)
+	var mouse := local_mouse() - Vector2(content_offset(), 0)
 	for i in range(MineCatalog.UPGRADES.size()):
 		var upgrade: Dictionary = MineCatalog.UPGRADES[i]
 		var level: int = game.upgrades[upgrade.key]
 		var maxed: bool = upgrade.max >= 0 and level >= upgrade.max
 		var price := MineCatalog.price(i, level)
 		var affordable: bool = not maxed and game.credits >= price
-		var rect := upgrade_rect(i).grow(float(hover_amount.get("up%d" % i, 0)))
-		rect.position.y += float(press_amount.get("up%d" % i, 0)) * 2
+		var rect := upgrade_rect(i).grow(2 if float(hover_amount.get("up%d" % i, 0)) > 0 else 0)
+		rect.position.y += 2 if float(press_amount.get("up%d" % i, 0)) > 0 else 0
 		var border := MineInk.LINE.lightened(0.2) if rect.has_point(mouse) else MineInk.LINE
 		if feedback_index == i and feedback_time > 0:
 			if feedback_success:
-				border = border.lerp(Color.WHITE, feedback_time / 0.45)
+				border = border.lerp(MineInk.TEXT, feedback_time / 0.45)
 			else:
-				rect.position.x += sin(feedback_time * 70) * feedback_time * 5
+				rect.position.x += snappedf(sin(feedback_time * 70) * feedback_time * 5, 2)
 		MineInk.panel(self, rect, MineInk.PANEL, border)
 		MineInk.icon(self, upgrade.icon, rect.position + Vector2(23, 24), MineInk.TEXT, 1.15)
 		MineInk.text(self, upgrade.name, rect.position + Vector2(43, 29), 16)
@@ -335,8 +340,8 @@ func draw_shop() -> void:
 		if maxed:
 			MineInk.text(self, "Owned", Vector2(rect.position.x + 16, price_y), 15, MineInk.MUTED)
 		else:
-			var color := MineInk.TEXT if affordable else Color("ff6565")
-			MineInk.icon(self, "coin", Vector2(rect.position.x + 23, price_y - 5), color, 0.8)
+			var color := Color("83d990") if affordable else Color("ff6565")
+			MineInk.icon(self, "coin", Vector2(rect.position.x + 23, price_y - 5), MineInk.TEXT, 0.8)
 			var price_text := str(price)
 			var price_size := 16
 			while MineInk.FONT.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, price_size).x > 155 and price_size > 8:
@@ -345,11 +350,42 @@ func draw_shop() -> void:
 
 func upgrade_values(key: String, level: int) -> Vector2i:
 	match key:
-		"depth": return Vector2i(level * 100, (level + 1) * 100)
+		"depth": return Vector2i(level * MineCatalog.DEPTH_STEP, (level + 1) * MineCatalog.DEPTH_STEP)
 		"power", "speed", "lives": return Vector2i(level + 1, level + 2)
 		"capacity": return Vector2i(level + 7, level + 8)
 		"insurance", "blocks": return Vector2i(level + 3, level + 4)
 	return Vector2i(level, level + 1)
+
+func hovered_upgrade() -> int:
+	if screen != "shop" or transition > 0 or entrance_time > 0 or has_popup() or not dragging.is_empty():
+		return -1
+	var mouse := local_mouse()
+	for index in range(MineCatalog.UPGRADES.size()):
+		if upgrade_rect(index).has_point(mouse):
+			return index
+	return -1
+
+func tooltip_rect() -> Rect2:
+	return Rect2(28, content_bottom() + 8, 424, 776 - content_bottom() - 8)
+
+func draw_upgrade_tooltip(index: int) -> void:
+	var rect := tooltip_rect()
+	MineInk.panel(self, rect)
+	var upgrade: Dictionary = MineCatalog.UPGRADES[index]
+	MineInk.icon(self, upgrade.icon, rect.position + Vector2(24, 30), MineInk.TEXT, 1.2)
+	MineInk.text(self, upgrade.name, rect.position + Vector2(48, 36), 20)
+	var line := ""
+	var y := rect.position.y + 70
+	for word in MineCatalog.upgrade_description(index).split(" "):
+		var next := word if line.is_empty() else line + " " + word
+		if MineInk.FONT.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x > 376:
+			MineInk.text(self, line, Vector2(48, y), 16)
+			y += 24
+			line = word
+		else:
+			line = next
+	if not line.is_empty():
+		MineInk.text(self, line, Vector2(48, y), 16)
 
 func draw_slider(kind: String) -> void:
 	var rect := slider_rect(kind)
@@ -359,19 +395,19 @@ func draw_slider(kind: String) -> void:
 	MineInk.text(self, label, rect.position + Vector2(14, 31), 14)
 	var center_y := snappedf(rect.get_center().y, 2)
 	draw_rect(Rect2(188, center_y, 246, 2), MineInk.LINE.darkened(0.5))
-	var fraction: float = float(value / 100) / game.upgrades.depth if kind == "depth" else float(value - 1) / game.upgrades.speed
+	var fraction: float = float(value / MineCatalog.DEPTH_STEP) / game.upgrades.depth if kind == "depth" else float(value - 1) / game.upgrades.speed
 	var x := snappedf(lerpf(188, 434, fraction), 2)
 	draw_rect(Rect2(188, center_y, x - 188, 2), MineInk.TEXT)
 	draw_rect(Rect2(x - 4, center_y - 6, 8, 14), MineInk.TEXT)
 
 func draw_popup() -> void:
-	draw_rect(Rect2(0, 0, 480, 800), Color(0, 0, 0, 0.9))
+	draw_rect(Rect2(0, 0, 480, 800), Color(MineInk.BG, 0.9))
 	MineInk.panel(self, Rect2(36, 248, 408, 240))
 	var freeze: bool = game.pending_shortcuts[0] == "freeze"
 	MineInk.centered(self, "Freeze Unlocked" if freeze else "Speedup Unlocked", 292, 24)
 	MineInk.centered(self, "Hold Space to freeze the mine." if freeze else "Hold W to use your selected speed.", 339, 15)
 	MineInk.centered(self, "Or toggle the snowflake button." if freeze else "Adjust the speed slider before diving.", 367, 13, MineInk.MUTED)
-	MineInk.button(self, confirm_rect, "Confirm", true, confirm_rect.has_point(get_global_mouse_position()))
+	MineInk.button(self, confirm_rect, "Confirm", true, confirm_rect.has_point(local_mouse()))
 
 func draw_sale_flights() -> void:
 	for flight in sale_flights:
@@ -380,4 +416,4 @@ func draw_sale_flights() -> void:
 		var source: Vector2 = flight.start
 		var control: Vector2 = flight.control
 		var pos := source.lerp(control, eased).lerp(control.lerp(coin_target, eased), eased)
-		MineCatalog.ore_shape(self, MineInk.snap(pos), flight.ore, lerpf(1.1, 0.6, t))
+		MineInk.ore_icon(self, MineInk.snap(pos), flight.ore, lerpf(1.1, 0.6, t))

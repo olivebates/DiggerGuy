@@ -6,10 +6,11 @@ const PIXEL := 2.0
 const ICONS := ["block", "heart", "shield", "depth", "lock", "speed", "coin", "bag", "freeze", "home", "pick", "close", "arrow"]
 const ICON_VARIANTS := 9
 static var icon_texture: Texture2D
+static var ring_textures: Dictionary = {}
 
-const BG := Color.BLACK
-const PANEL := Color.BLACK
-const LINE := Color("d9c9a5")
+const BG := Color("160e0b")
+const PANEL := Color("2b1b13")
+const LINE := Color("a47750")
 const TEXT := Color("eee0bd")
 const MUTED := Color("a69a80")
 const GOLD := Color("e5d1a0")
@@ -23,7 +24,21 @@ static func grid_rect(rect: Rect2) -> Rect2:
 	return Rect2(start, (snap(rect.end) - start).max(Vector2.ONE * PIXEL))
 
 static func text(canvas: CanvasItem, value: String, pos: Vector2, size: int = 14, color: Color = TEXT) -> void:
-	canvas.draw_string(FONT, pos, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	canvas.draw_string(FONT, pos.round(), value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+
+static func ring_texture(radius: int) -> Texture2D:
+	if ring_textures.has(radius):
+		return ring_textures[radius]
+	var pixels := Image.create(radius * 2, radius * 2, false, Image.FORMAT_RGBA8)
+	pixels.fill(Color.TRANSPARENT)
+	for y in range(radius * 2):
+		for x in range(radius * 2):
+			var distance := Vector2(x + 0.5 - radius, y + 0.5 - radius).length_squared()
+			if distance <= radius * radius and distance > (radius - 1) * (radius - 1):
+				pixels.set_pixel(x, y, Color.WHITE)
+	var texture := ImageTexture.create_from_image(pixels)
+	ring_textures[radius] = texture
+	return texture
 
 static func fitted_text(canvas: CanvasItem, value: String, pos: Vector2, width: float, size: int, color: Color = TEXT) -> void:
 	while size > 8 and FONT.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > width:
@@ -51,7 +66,7 @@ static func button(canvas: CanvasItem, rect: Rect2, label: String, primary: bool
 	var border := LINE.lightened(0.25) if hover and enabled else LINE
 	if not enabled:
 		border = LINE.darkened(0.55)
-	panel(canvas, rect, PANEL, border)
+	panel(canvas, rect.grow(PIXEL if hover else 0), PANEL, border)
 	centered(canvas, label, rect.position.y + rect.size.y * 0.5 + 5, 16 if primary else 14, TEXT if enabled else MUTED.darkened(0.3), rect.get_center().x)
 
 static func icon(canvas: CanvasItem, kind: String, center: Vector2, color: Color = TEXT, scale_value: float = 1.0) -> void:
@@ -62,6 +77,14 @@ static func icon(canvas: CanvasItem, kind: String, center: Vector2, color: Color
 	var cell := index * ICON_VARIANTS + variant
 	var source := Rect2((cell % 16) * 16, (cell / 16) * 16, 16, 16)
 	canvas.draw_texture_rect_region(icon_texture, Rect2(snap(center) - Vector2(16, 16), Vector2(32, 32)), source, color)
+
+static func ore_icon(canvas: CanvasItem, center: Vector2, index: int, scale_value: float = 1.0) -> void:
+	if icon_texture == null:
+		return
+	var variant := clampi(roundi(scale_value * 8) - 4, 0, ICON_VARIANTS - 1)
+	var cell := (ICONS.size() + index) * ICON_VARIANTS + variant
+	var source := Rect2((cell % 16) * 16, (cell / 16) * 16, 16, 16)
+	canvas.draw_texture_rect_region(icon_texture, Rect2(snap(center) - Vector2(16, 16), Vector2(32, 32)), source)
 
 static func vector_icon(canvas: CanvasItem, kind: String, center: Vector2, color: Color = TEXT, scale_value: float = 1.0) -> void:
 	var s := scale_value

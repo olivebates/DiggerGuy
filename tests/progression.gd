@@ -61,7 +61,7 @@ func run() -> void:
 	check(MineCatalog.price(1, 0) == 200 and MineCatalog.price(1, 1) == 250, "Click damage starts at 200 with the same growth rule")
 	check([MineCatalog.price(3, 0), MineCatalog.price(3, 1), MineCatalog.price(3, 2)] == [500, 625, 781], "Save Ore prices start at 500 with recursive floor rounding")
 	check([MineCatalog.price(6, 0), MineCatalog.price(6, 1), MineCatalog.price(6, 2)] == [1200, 3600, 10800], "Life upgrade prices triple from 1200")
-	check([MineCatalog.price(5, 0), MineCatalog.price(5, 1), MineCatalog.price(5, 2)] == [200, 500, 1200], "Speed tiers cost exactly 200, 500, and 1200")
+	check([MineCatalog.price(5, 0), MineCatalog.price(5, 1), MineCatalog.price(5, 2)] == [50, 500, 1200], "Speed tiers cost exactly 50, 500, and 1200")
 	game.return_to_depot(false)
 	game.buy_upgrade(2)
 	game.buy_upgrade(2)
@@ -91,16 +91,16 @@ func run() -> void:
 	game.return_to_depot(false)
 	wallet = game.credits
 	game.buy_upgrade(5)
-	check(game.selected_speed == 2 and game.max_speed() == 2 and game.credits == wallet - 200 and game.pending_shortcuts == ["speed"], "First speed tier unlocks 2x and shows the W shortcut")
+	check(game.selected_speed == 2 and game.max_speed() == 2 and game.credits == wallet - 50 and game.pending_shortcuts == ["speed"], "First speed tier unlocks 2x and shows the W shortcut")
 	game.depot.confirm_shortcut()
 	game.buy_upgrade(5)
-	check(game.selected_speed == 3 and game.credits == wallet - 700 and game.pending_shortcuts.is_empty(), "Second speed tier costs 500 without repeating the tutorial")
+	check(game.selected_speed == 3 and game.credits == wallet - 550 and game.pending_shortcuts.is_empty(), "Second speed tier costs 500 without repeating the tutorial")
 	game.buy_upgrade(5)
-	check(game.selected_speed == 4 and game.credits == wallet - 1900 and game.max_speed() == 4, "Final speed tier costs 1200 and unlocks 4x")
+	check(game.selected_speed == 4 and game.credits == wallet - 1750 and game.max_speed() == 4, "Final speed tier costs 1200 and unlocks 4x")
 	game.buy_upgrade(5)
-	check(game.credits == wallet - 1900, "Maxed speed cannot be purchased again")
+	check(game.credits == wallet - 1750, "Maxed speed cannot be purchased again")
 	game.buy_upgrade(0)
-	check(game.selected_depth == 100, "Depth upgrade unlocks a 100m starting point")
+	check(game.selected_depth == 20, "Depth upgrade unlocks a 20m starting point")
 	for screen in ["depot", "shop"]:
 		game.depot.screen = screen
 		var rect: Rect2 = game.depot.slider_rect("depth")
@@ -113,7 +113,7 @@ func run() -> void:
 		release.button_index = MOUSE_BUTTON_LEFT
 		release.pressed = false
 		game.depot._input(release)
-		check(game.selected_depth == 100 and game.depot.dragging.is_empty(), "Depth slider clamps to purchased depth and releases on " + screen)
+		check(game.selected_depth == 20 and game.depot.dragging.is_empty(), "Depth slider clamps to purchased depth and releases on " + screen)
 		game.depot.set_slider("speed", 188)
 		check(game.selected_speed == 1, "Speed slider selects 1x on " + screen)
 		game.depot.set_slider("speed", 434)
@@ -132,9 +132,9 @@ func run() -> void:
 	game.return_to_depot(false)
 	game.sell_ores()
 	game.buy_upgrade(4)
-	check(game.credits == 500 and game.depot.displayed_credits == 0, "Spending incoming sale proceeds never shows a negative coin counter")
+	check(game.credits == 1300 and game.depot.displayed_credits == 0, "Spending incoming sale proceeds never shows a negative coin counter")
 	game.depot.advance_sale(1)
-	check(game.depot.displayed_credits == 500, "Sale completion matches the wallet after a concurrent purchase")
+	check(game.depot.displayed_credits == 1300, "Sale completion matches the wallet after a concurrent purchase")
 	test_full_bag()
 	test_lives()
 	test_save()
@@ -212,7 +212,7 @@ func test_save() -> void:
 	game.upgrades.speed = 2
 	game.upgrades.freeze = 1
 	game.upgrades.lives = 2
-	game.selected_depth = 100
+	game.selected_depth = 20
 	game.selected_speed = 2
 	game.pending_shortcuts.append("freeze")
 	game.inventory[0] = 12
@@ -225,7 +225,7 @@ func test_save() -> void:
 	game.upgrades.speed = 0
 	game.load_progress()
 	check(game.credits == 1234 and game.capacity() == 10 and game.max_lives() == 3 and game.max_speed() == 3, "New progression and wallet persist across save/load")
-	check(game.selected_depth == 100 and game.selected_speed == 2 and game.pending_shortcuts == ["freeze"], "Sliders and unconfirmed shortcut tutorial persist across save/load")
+	check(game.selected_depth == 20 and game.selected_speed == 2 and game.pending_shortcuts == ["freeze"], "Sliders and unconfirmed shortcut tutorial persist across save/load")
 	check(game.inventory[0] == 12, "Existing ore is preserved even when the new bag capacity is smaller")
 	game.test_mode = true
 	game.mode = "playing"

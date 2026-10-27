@@ -196,7 +196,7 @@ func test_inventory_and_economy() -> void:
 	game.drops.append({"pos": game.player, "vel": Vector2.ZERO, "ore": 1, "rotation": 0.0, "age": 0.0})
 	game.update_drops(0.01, 0)
 	check(game.inventory[1] == 1 and game.drops.is_empty(), "Touching ore collects it")
-	check(game.pickup_flights.size() == 1, "Pickup starts a flight to the bag button")
+	check(game.pickup_flights.size() == 1, "Pickup starts a flight to the Ores counter")
 	game.inventory[0] = 29
 	game.drops.clear()
 	game.drops.append({"pos": game.player, "vel": Vector2.ZERO, "ore": 0, "rotation": 0.0, "age": 0.0})
@@ -213,9 +213,9 @@ func test_inventory_and_economy() -> void:
 	check(game.upgrades.power == 0 and game.credits == 62, "Unaffordable purchases do not charge")
 	game.credits = 1000
 	game.buy_upgrade(0)
-	check(game.selected_depth == 100, "Starting depth upgrade selects unlocked depth")
+	check(game.selected_depth == 20, "Starting depth upgrade selects unlocked depth")
 	game.start_run()
-	check(game.world.base_depth == 100, "New expedition starts in purchased stratum")
+	check(game.world.base_depth == 20, "New expedition starts in purchased stratum")
 	game.inventory.fill(0)
 	game.inventory[0] = 10
 	game.inventory[13] = 2
@@ -427,7 +427,7 @@ func test_movement_feel() -> void:
 	check(game.pending_direction == -1 and game.player_lean < 0, "Wall contact starts a backward lean before turning")
 	for frame in range(30):
 		game.update_player(1.0 / 60)
-	check(game.direction == -1 and game.player_velocity.x < 0 and game.facing_blend < -0.8, "Miner eases into walking the other way and the lamp follows")
+	check(game.direction == -1 and game.player_velocity.x < 0 and game.facing_blend < -0.8, "Miner eases into walking the other way and the miner faces that direction")
 	var light := landing_sample(24)
 	var heavy := landing_sample(145)
 	check(light.grounded and heavy.grounded, "Both short and substantial falls land safely on a floor")
@@ -445,7 +445,7 @@ func test_movement_feel() -> void:
 	game.pending_direction = -1
 	var animated_state := [game.turn_timer, game.edge_timer, game.walk_cycle, game.landing_squash, game.facing_blend, game.player_lean, game.landing_rings.duplicate(true)]
 	game._physics_process(0.5)
-	check(animated_state == [game.turn_timer, game.edge_timer, game.walk_cycle, game.landing_squash, game.facing_blend, game.player_lean, game.landing_rings], "Freeze suspends anticipation, gait, squash, lamp motion, and landing rings")
+	check(animated_state == [game.turn_timer, game.edge_timer, game.walk_cycle, game.landing_squash, game.facing_blend, game.player_lean, game.landing_rings], "Freeze suspends anticipation, gait, squash, facing animation, and landing rings")
 	flat_test_world(18)
 	game.player = Vector2(240, 150)
 	game.grounded = false
@@ -562,7 +562,7 @@ func test_depot_and_color_updates() -> void:
 			continuous = false
 	check(continuous, "Terrain colors change continuously through every region boundary")
 	check(MineWorld.region_color(80, "rock") != MineWorld.region_color(100, "rock") and MineWorld.region_color(1900, "rock") != MineWorld.region_color(2000, "rock"), "Color progression continues both between early regions and below the final region")
-	check(MineInk.BG == Color.BLACK and MineInk.PANEL == Color.BLACK and MineInk.LINE == Color("d9c9a5"), "HUD, depot, and shop share black fills and beige outlines")
+	check(MineInk.BG.get_luminance() < MineInk.PANEL.get_luminance() and MineInk.PANEL.get_luminance() < MineInk.LINE.get_luminance() and MineInk.LINE.get_luminance() < MineInk.TEXT.get_luminance(), "HUD, depot, and shop share a brown palette with text brighter than the outlines")
 	game.selected_depth = 0
 	game.start_run()
 	game.inventory.fill(0)

@@ -7,3 +7,8 @@ func _draw() -> void:
 			var center := Vector2((cell % 16) * 16 + 8, (cell / 16) * 16 + 8)
 			# Rasterize vectors once at native resolution, then display each texel as 2x2.
 			MineInk.vector_icon(self, MineInk.ICONS[index], center, Color.WHITE, (variant + 4) / 16.0)
+	for index in range(MineCatalog.ORES.size()):
+		for variant in range(MineInk.ICON_VARIANTS):
+			var cell := (MineInk.ICONS.size() + index) * MineInk.ICON_VARIANTS + variant
+			var center := Vector2((cell % 16) * 16 + 8, (cell / 16) * 16 + 8)
+			MineCatalog.ore_shape(self, center, index, (variant + 4) / 16.0)

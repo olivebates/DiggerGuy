@@ -107,10 +107,10 @@ var bag_pulse := 0.0
 var test_mode := false
 var rng := RandomNumberGenerator.new()
 var hesitation_rng := RandomNumberGenerator.new()
-var speed_rect := Rect2(326, 46, 30, 30)
-var freeze_rect := Rect2(362, 46, 30, 30)
-var bag_rect := Rect2(398, 46, 30, 30)
-var home_rect := Rect2(434, 46, 30, 30)
+var speed_rect := Rect2(164, 82, 32, 32)
+var freeze_rect := Rect2(204, 82, 32, 32)
+var bag_rect := Rect2(244, 82, 32, 32)
+var home_rect := Rect2(284, 82, 32, 32)
 
 func _ready() -> void:
 	rng.randomize()
@@ -160,7 +160,7 @@ func _ready() -> void:
 	terrain_root.material = crisp_material
 	terrain_viewport.add_child(terrain_root)
 	icon_viewport = SubViewport.new()
-	icon_viewport.size = Vector2i(256, ceili(MineInk.ICONS.size() * MineInk.ICON_VARIANTS / 16.0) * 16)
+	icon_viewport.size = Vector2i(256, ceili((MineInk.ICONS.size() + MineCatalog.ORES.size()) * MineInk.ICON_VARIANTS / 16.0) * 16)
 	icon_viewport.transparent_bg = true
 	icon_viewport.msaa_2d = Viewport.MSAA_DISABLED
 	icon_viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
@@ -184,6 +184,7 @@ func _ready() -> void:
 	filter.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	global_pixel_material = ShaderMaterial.new()
 	global_pixel_material.shader = preload("res://shaders/global_pixels.gdshader")
+	global_pixel_material.set_shader_parameter("world_top", MineWorld.TOP / 800.0)
 	filter.material = global_pixel_material
 	pixel_layer.add_child(filter)
 	start_run()
@@ -358,7 +359,7 @@ func _input(event: InputEvent) -> void:
 				speed_toggle = not speed_toggle
 				synth.play_sound("ui")
 		elif inventory_open:
-			if Rect2(402, 126, 30, 30).has_point(mouse):
+			if Rect2(402, MineWorld.TOP + 30, 30, 30).has_point(mouse):
 				toggle_inventory()
 		elif mouse.y >= MineWorld.TOP and mouse.y < MineWorld.BOTTOM:
 			mouse_held = true
@@ -760,14 +761,14 @@ func update_enemies(delta: float, rise_speed: float) -> void:
 		enemy.vel.y = minf(200, enemy.vel.y + GRAVITY * delta)
 		match data.kind:
 			"slime":
-				enemy.vel.x *= 0.5 + 0.5 * maxf(0, sin(enemy.clock * 2))
+				enemy.vel.x *= 0.5 if enemy_pose(enemy.clock, 2) == 0 else 1.0
 				if was_grounded and fmod(enemy.clock, 3.4) < delta:
 					enemy.vel.y = -70
 			"beetle":
 				if was_grounded and not world.solid(world.cell_at(enemy.pos + Vector2(enemy.dir * 23, 26))):
 					enemy.dir *= -1
 			"bat":
-				enemy.vel.y = sin(enemy.clock * 3) * 23
+				enemy.vel.y = -23 if enemy_pose(enemy.clock, 1) == 0 else 23
 			"hopper":
 				if was_grounded and fmod(enemy.clock, 1.6) < delta:
 					enemy.vel.y = -130
@@ -775,17 +776,17 @@ func update_enemies(delta: float, rise_speed: float) -> void:
 			"spider":
 				enemy.vel.x *= 1.7 if fmod(enemy.clock, 2.5) < 0.5 else 0.45
 			"wisp":
-				enemy.vel = offset.normalized() * speed if offset.length() < 140 else Vector2(sin(enemy.clock) * speed, cos(enemy.clock * 1.5) * 15)
+				enemy.vel = offset.normalized() * speed if offset.length() < 140 else Vector2(-speed if enemy_pose(enemy.clock, 1) == 0 else speed, -15 if enemy_pose(enemy.clock, 2) == 0 else 15)
 			"crab":
 				if absf(offset.x) < 110 and absf(offset.y) < 25:
 					enemy.dir = 1 if offset.x > 0 else -1
 					enemy.vel.x = enemy.dir * speed * 2.1
 			"worm":
-				enemy.vel.x *= 0.9 + sin(enemy.clock * 4) * 0.45
+				enemy.vel.x *= 0.45 if enemy_pose(enemy.clock, 3) == 0 else 1.35
 				if was_grounded and fmod(enemy.clock, 2.2) < delta:
 					enemy.vel.y = -95
 			"eye":
-				var target := player + Vector2(sin(enemy.clock * 1.4) * 25, -20)
+				var target := player + Vector2(-25 if enemy_pose(enemy.clock, 1) == 0 else 25, -20)
 				enemy.vel = (target - enemy.pos).normalized() * speed
 			"sentinel":
 				if offset.length() < 170:
@@ -1020,7 +1021,7 @@ func buy_upgrade(index: int) -> void:
 	credits -= price
 	upgrades[upgrade.key] += 1
 	if upgrade.key == "depth":
-		selected_depth = upgrades.depth * 100
+		selected_depth = upgrades.depth * MineCatalog.DEPTH_STEP
 	if upgrade.key == "speed":
 		selected_speed = max_speed()
 	if level == 0 and upgrade.key in ["freeze", "speed"]:
@@ -1029,8 +1030,8 @@ func buy_upgrade(index: int) -> void:
 	synth.play_sound("purchase", -6, 1.15)
 	save_progress()
 func cycle_depth() -> void:
-	selected_depth += 100
-	if selected_depth > upgrades.depth * 100:
+	selected_depth += MineCatalog.DEPTH_STEP
+	if selected_depth > upgrades.depth * MineCatalog.DEPTH_STEP:
 		selected_depth = 0
 	synth.play_sound("ui")
 	save_progress()
@@ -1040,7 +1041,7 @@ func save_progress() -> void:
 		return
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
-		file.store_string(JSON.stringify({"version": 2, "credits": credits, "upgrades": upgrades, "inventory": inventory, "depth": selected_depth, "speed": selected_speed, "tutorials": pending_shortcuts, "best": best_depth, "muted": synth.muted}))
+		file.store_string(JSON.stringify({"version": 3, "credits": credits, "upgrades": upgrades, "inventory": inventory, "depth": selected_depth, "speed": selected_speed, "tutorials": pending_shortcuts, "best": best_depth, "muted": synth.muted}))
 
 func load_progress() -> void:
 	if test_mode or not FileAccess.file_exists(SAVE_PATH):
@@ -1063,7 +1064,8 @@ func load_progress() -> void:
 	if saved_inventory is Array:
 		for i in range(mini(15, saved_inventory.size())):
 			inventory[i] = clampi(int(saved_inventory[i]), 0, 1000000)
-	selected_depth = clampi(int(data.get("depth", 0)) / 100 * 100, 0, upgrades.depth * 100)
+	var saved_step := 100 if int(data.get("version", 1)) < 3 else MineCatalog.DEPTH_STEP
+	selected_depth = clampi(int(data.get("depth", 0)) / saved_step * MineCatalog.DEPTH_STEP, 0, upgrades.depth * MineCatalog.DEPTH_STEP)
 	selected_speed = clampi(int(data.get("speed", 1)), 1, max_speed())
 	pending_shortcuts.clear()
 	var tutorials = data.get("tutorials", [])
@@ -1086,7 +1088,6 @@ func _draw() -> void:
 	draw_formations()
 	draw_liquid()
 	draw_floor_spikes()
-	draw_player_light()
 	for drop in drops:
 		if drop.pos.y > MineWorld.TOP and drop.pos.y < MineWorld.BOTTOM + 8:
 			draw_set_transform(MineInk.snap(drop.pos + shake_offset), drop.rotation)
@@ -1118,11 +1119,9 @@ func _draw() -> void:
 		MineInk.outline(self, Rect2(0, MineWorld.TOP, 480, MineWorld.BOTTOM - MineWorld.TOP), Color("81cbd2"))
 	draw_hud()
 	for flight in pickup_flights:
-		var t: float = flight.t
-		var eased := 1.0 - pow(1.0 - t, 2)
-		var pos: Vector2 = MineInk.snap(flight.start.lerp(bag_rect.get_center(), eased) + Vector2(-sin(t * PI) * 35, -sin(t * PI) * 30))
+		var pos := pickup_position(flight)
 		draw_circle(pos, 8, Color(0.8, 0.9, 0.7, 0.08))
-		MineCatalog.ore_shape(self, pos, flight.ore, 0.8)
+		MineInk.ore_icon(self, pos, flight.ore, 0.8)
 	if inventory_open:
 		draw_inventory()
 	elif mode == "playing":
@@ -1132,7 +1131,7 @@ func _draw() -> void:
 	elif mode == "leaving":
 		draw_departure()
 	elif full_banner_time > 0 and not inventory_open:
-		draw_rect(Rect2(28, 356, 424, 82), Color(0, 0, 0, 0.9))
+		MineInk.panel(self, Rect2(28, 356, 424, 82))
 		MineInk.centered(self, "Inventory Full", 411, 40)
 	if mode == "playing":
 		for message in floating_texts:
@@ -1210,27 +1209,15 @@ func draw_floor_spikes() -> void:
 			var midpoint := (triangle[0] + triangle[1]) * 0.5
 			draw_colored_polygon(PackedVector2Array([midpoint, triangle[1], triangle[2]]), Color("985d58"))
 
-func draw_player_light() -> void:
-	var peek := edge_timer / EDGE_PAUSE
-	var lamp := MineInk.snap(player + Vector2(0, 16) + (Vector2(facing_blend * 5, -13 + peek) * BOARD_ZOOM).rotated(player_lean))
-	var forward := Vector2(direction, peek * 0.5).normalized()
-	var side := forward.orthogonal()
-	var lamp_color := Color("ffe1a0")
-	for band in range(24):
-		var near := band / 24.0
-		var far := (band + 1) / 24.0
-		var a := lamp + forward * near * 115
-		var b := lamp + forward * far * 115
-		var alpha := 0.26 * pow(1 - near, 1.5)
-		draw_colored_polygon(PackedVector2Array([a - side * near * 32, b - side * far * 32, b + side * far * 32, a + side * near * 32]), Color(lamp_color, alpha))
-	for ring in range(18, 0, -1):
-		var t := ring / 18.0
-		draw_circle(MineInk.snap(player), 36 * t, Color(lamp_color, 0.22 * pow(1 - t, 1.5)))
+func enemy_pose(clock: float, fps: float = 6) -> int:
+	return floori(clock * fps) % 2
+
 func draw_enemy(enemy: Dictionary) -> void:
 	var p := Vector2.ZERO
 	var color := Color(MineCatalog.ENEMIES[enemy.type].color)
 	var kind: String = MineCatalog.ENEMIES[enemy.type].kind
 	var phase: float = enemy.clock
+	var frame := enemy_pose(phase)
 	match kind:
 		"slime":
 			draw_circle(p + Vector2(0, 1), 6, color.darkened(0.2))
@@ -1243,7 +1230,7 @@ func draw_enemy(enemy: Dictionary) -> void:
 			draw_circle(p, 5, color)
 			draw_line(p + Vector2(0, -5), p + Vector2(0, 5), color.darkened(0.5), 1)
 		"bat":
-			var flap := sin(phase * 13) * 3
+			var flap := -3 if frame == 0 else 3
 			for side in [-1, 1]:
 				draw_colored_polygon(PackedVector2Array([p, p + Vector2(side * 8, -4 + flap), p + Vector2(side * 6, 3), p + Vector2(side * 3, 1)]), color)
 			draw_circle(p, 3, color.lightened(0.2))
@@ -1254,7 +1241,8 @@ func draw_enemy(enemy: Dictionary) -> void:
 		"spider":
 			for side in [-1, 1]:
 				for j in range(4):
-					draw_polyline(PackedVector2Array([p, p + Vector2(side * 5, j * 3 - 6), p + Vector2(side * 7, j * 3 - 4 + sin(phase * 12 + j))]), color, 1)
+					var step := -1 if (frame + j) % 2 == 0 else 1
+					draw_polyline(PackedVector2Array([p, p + Vector2(side * 5, j * 3 - 6), p + Vector2(side * 7, j * 3 - 4 + step)]), color, 1)
 			draw_circle(p, 3.5, color.darkened(0.2))
 		"wisp":
 			draw_circle(p, 9, Color(color, 0.08))
@@ -1271,13 +1259,14 @@ func draw_enemy(enemy: Dictionary) -> void:
 				draw_line(p + Vector2(side * 4, 4), p + Vector2(side * 7, 6), color, 1)
 		"worm":
 			for j in range(4):
-				draw_circle(p + Vector2((j - 1.5) * 3.5, sin(phase * 5 + j) * 2), 3, color.lightened(j * 0.06))
+				var step := -2 if (frame + j) % 2 == 0 else 2
+				draw_circle(p + Vector2((j - 1.5) * 4, step), 3, color.lightened(j * 0.06))
 		"eye":
 			draw_circle(p, 8, Color(color, 0.08))
 			draw_colored_polygon(PackedVector2Array([p + Vector2(-8, 0), p + Vector2(0, -5), p + Vector2(8, 0), p + Vector2(0, 5)]), color)
 			draw_circle(p, 0.5 if blink_closed(time, phase) else 3, Color("f5e5ed"))
 			if not blink_closed(time, phase):
-				draw_circle(p + (player - Vector2(enemy.pos)).normalized(), 1.5, Color("482a62"))
+				draw_circle(p + (player - Vector2(enemy.pos)).normalized().round(), 1, Color("482a62"))
 		"sentinel":
 			draw_colored_polygon(PackedVector2Array([p + Vector2(0, -8), p + Vector2(7, -3), p + Vector2(5, 6), p + Vector2(0, 8), p + Vector2(-5, 6), p + Vector2(-7, -3)]), color.darkened(0.3))
 			draw_line(p + Vector2(-3, -2), p + Vector2(3, -2), color.lightened(0.5), 0.5 if blink_closed(time, phase) else 2)
@@ -1299,62 +1288,79 @@ func draw_spikes() -> void:
 		draw_colored_polygon(PackedVector2Array([Vector2(x, base_y), tip, Vector2(x + 16, base_y)]), Color("e2a18a"))
 		draw_colored_polygon(PackedVector2Array([tip, Vector2(x + 8, base_y), Vector2(x + 16, base_y)]), Color("a9635b"))
 
+func indicator_center(index: int) -> Vector2:
+	return Vector2(64 + index * 88, 56)
+
+func pickup_position(flight: Dictionary) -> Vector2:
+	var t: float = clampf(flight.t, 0, 1)
+	var eased := 1 - pow(1 - t, 2)
+	return MineInk.snap(Vector2(flight.start).lerp(indicator_center(2), eased) + Vector2(-sin(t * PI) * 35, -sin(t * PI) * 30))
+
+func draw_indicator(index: int, label: String, value: String, icon: String = "", color: Color = MineInk.TEXT, pulse: float = 1.0) -> void:
+	var center := indicator_center(index)
+	MineInk.centered(self, label, 30, 13, MineInk.TEXT, center.x)
+	var size := roundi((20 if index < 2 else 17) * pulse)
+	var gap := snappedf(20 * pulse, 2) if not icon.is_empty() else 0.0
+	while size > 8 and MineInk.FONT.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + gap > 76:
+		size -= 1
+	var width := MineInk.FONT.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var left := snappedf(center.x - (width + gap) * 0.5, 2)
+	if not icon.is_empty():
+		MineInk.icon(self, icon, Vector2(left + gap * 0.5 - 2, 56), color, 0.9 * pulse)
+	MineInk.text(self, value, Vector2(left + gap, 62), size, color)
+
 func draw_hud() -> void:
 	draw_rect(Rect2(0, 0, 480, MineWorld.TOP), MineInk.BG)
-	MineInk.panel(self, Rect2(8, 8, 464, 80))
-	MineInk.text(self, "Depth", Vector2(24, 32), 13)
-	MineInk.fitted_text(self, "%d m" % current_depth(), Vector2(24, 62), 86, 23)
-	MineInk.text(self, "Value", Vector2(120, 32), 13)
-	MineInk.icon(self, "coin", Vector2(128, 56), MineInk.GOLD, 0.8)
-	MineInk.fitted_text(self, str(haul_value()), Vector2(144, 62), 62, 21)
-	MineInk.text(self, "Ores", Vector2(212, 32), 13)
-	MineInk.fitted_text(self, "%d/%d" % [inventory_count(), capacity()], Vector2(212, 62), 52, 15)
-	MineInk.text(self, "Blocks", Vector2(270, 32), 12)
-	MineInk.icon(self, "heart", Vector2(336, 26), MineInk.TEXT, 0.8)
-	MineInk.text(self, str(lives), Vector2(352, 32), 18)
+	MineInk.panel(self, Rect2(8, 8, 464, 112))
+	draw_indicator(0, "Depth", "%d m" % current_depth())
+	draw_indicator(1, "Value", str(haul_value()), "coin")
+	draw_indicator(2, "Ores", "%d/%d" % [inventory_count(), capacity()], "", MineInk.TEXT, 1 + bag_pulse * 0.3)
+	var block_color := Color("ff6565") if blocks_left == 0 else MineInk.TEXT
+	var pulse := 1 + sin((1 - block_counter_pulse / 0.5) * PI) * 0.45 if block_counter_pulse > 0 else 1.0
+	draw_indicator(3, "Blocks", str(blocks_left), "block", block_color, pulse)
+	draw_indicator(4, "Lives", str(lives), "heart")
 	for pair in [[speed_rect, "speed"], [freeze_rect, "freeze"], [bag_rect, "bag"], [home_rect, "home"]]:
 		var rect: Rect2 = pair[0]
 		var active: bool = (pair[1] == "speed" and game_speed() > 1) or (pair[1] == "freeze" and is_frozen()) or (pair[1] == "bag" and inventory_open)
 		var hover := rect.has_point(cursor_position)
 		var locked: bool = (pair[1] == "speed" and upgrades.speed == 0) or (pair[1] == "freeze" and upgrades.freeze == 0)
-		MineInk.panel(self, rect, MineInk.PANEL, MineInk.LINE.darkened(0.65) if locked else (MineInk.MINT if active or hover else MineInk.LINE))
-		MineInk.icon(self, pair[1], rect.get_center(), MineInk.MUTED.darkened(0.5) if locked else (MineInk.MINT if active else MineInk.TEXT))
+		MineInk.panel(self, rect.grow(2 if hover else 0), MineInk.PANEL, MineInk.LINE.darkened(0.4) if locked else MineInk.LINE)
+		MineInk.icon(self, pair[1], rect.get_center(), MineInk.MUTED.darkened(0.3) if locked else MineInk.TEXT)
 		if locked:
-			MineInk.icon(self, "lock", rect.position + Vector2(25, 25), MineInk.LINE, 0.6)
+			MineInk.icon(self, "lock", rect.position + Vector2(26, 26), MineInk.LINE, 0.6)
 		if pair[1] == "home" and leave_glow:
-			var pulse := 0.5 + sin(ui_time * 7) * 0.5
-			MineInk.outline(self, rect.grow(2 + pulse), Color(MineInk.GOLD, 0.25 + pulse * 0.5))
-			MineInk.outline(self, rect, MineInk.TEXT)
+			var glow := 0.5 + sin(ui_time * 7) * 0.5
+			MineInk.outline(self, rect.grow(2), Color(MineInk.LINE, 0.25 + glow * 0.5))
 		if active:
-			draw_rect(Rect2(MineInk.snap(rect.position + Vector2(5, 5)), Vector2(2, 2)), MineInk.TEXT)
-	var block_color := Color("ff6565") if blocks_left == 0 else MineInk.TEXT
-	var pulse := 1 + sin((1 - block_counter_pulse / 0.5) * PI) * 0.45 if block_counter_pulse > 0 else 1.0
-	MineInk.icon(self, "block", Vector2(278, 56), block_color, 0.9 * pulse)
-	MineInk.fitted_text(self, str(blocks_left), Vector2(294, 62), 30, roundi(17 * pulse), block_color)
+			draw_rect(Rect2(rect.position + Vector2(4, 4), Vector2(2, 2)), MineInk.TEXT)
+
+func cursor_center() -> Vector2:
+	return MineInk.snap(cursor_position)
 
 func draw_cursor() -> void:
-	var mouse := cursor_position
+	var mouse := cursor_center()
 	if mouse.y < MineWorld.TOP or mouse.y >= MineWorld.BOTTOM or mouse.x < 0 or mouse.x > 480:
 		return
 	var color := Color("f5c477") if mouse_held else Color("d9dfc5")
-	draw_circle(mouse, DIG_RADIUS, Color(color, 0.035))
-	draw_arc(mouse, DIG_RADIUS, 0, TAU, 48, Color(color, 0.65), 1)
-	for angle in [0.0, PI * 0.5, PI, PI * 1.5]:
-		var unit := Vector2.from_angle(angle)
-		draw_line(mouse + unit * (DIG_RADIUS - 3), mouse + unit * (DIG_RADIUS + 3), color, 1)
-	draw_circle(mouse, 1.5, color)
+	var ring := MineInk.ring_texture(roundi(DIG_RADIUS / MineInk.PIXEL))
+	draw_texture_rect(ring, Rect2(mouse - Vector2.ONE * DIG_RADIUS, Vector2.ONE * DIG_RADIUS * 2), false, color)
+	for offset in [Vector2(-28, 0), Vector2(22, 0)]:
+		draw_rect(Rect2(mouse + offset, Vector2(6, 2)), color)
+	for offset in [Vector2(0, -28), Vector2(0, 22)]:
+		draw_rect(Rect2(mouse + offset, Vector2(2, 6)), color)
+	draw_rect(Rect2(mouse, Vector2(2, 2)), color)
 
 func draw_inventory() -> void:
-	draw_rect(Rect2(0, MineWorld.TOP, 480, 656), Color(0.02, 0.04, 0.06, 0.82))
-	MineInk.panel(self, Rect2(32, 116, 416, 581), MineInk.BG, MineInk.LINE, 12)
-	MineInk.text(self, "Satchel  %d / %d" % [inventory_count(), capacity()], Vector2(52, 153), 25)
-	MineInk.icon(self, "close", Vector2(417, 141), MineInk.MUTED)
+	draw_rect(Rect2(0, MineWorld.TOP, 480, 800 - MineWorld.TOP), Color(MineInk.BG, 0.9))
+	MineInk.panel(self, Rect2(32, MineWorld.TOP + 20, 416, 581), MineInk.PANEL, MineInk.LINE, 12)
+	MineInk.text(self, "Satchel  %d / %d" % [inventory_count(), capacity()], Vector2(52, MineWorld.TOP + 57), 25)
+	MineInk.icon(self, "close", Vector2(417, MineWorld.TOP + 45), MineInk.MUTED)
 	var ores := visible_ores()
 	for slot in range(ores.size()):
 		var ore := ores[slot]
-		var y := 192 + slot * 31
+		var y := MineWorld.TOP + 96 + slot * 31
 		MineInk.panel(self, Rect2(48, y - 16, 384, 28), MineInk.PANEL, MineInk.LINE, 5)
-		MineCatalog.ore_shape(self, Vector2(65, y - 2), ore, 0.95)
+		MineInk.ore_icon(self, Vector2(65, y - 2), ore, 0.95)
 		MineInk.text(self, "%s  × %d" % [MineCatalog.ORES[ore].name, inventory[ore]], Vector2(86, y + 3), 13, MineCatalog.ore_color(ore))
 
 func blink_closed(clock: float, offset: float) -> bool:

@@ -80,11 +80,11 @@ func run() -> void:
 				lit += 1
 			else:
 				unlit += 1
-	check(lit > 5 and unlit > lit, "The lamp cone fades through opaque warm pixels and transparent gaps")
+	check(lit == 0 and unlit > 0, "The player emits no lamp cone or nearby light")
 	var still: PackedByteArray = light.get_data()
 	game.player += Vector2(0.2, 0.2)
 	await frames()
-	check(still == root.get_texture().get_image().get_data(), "Subpixel physics offsets do not move the rendered miner or light between grid pixels")
+	check(still == root.get_texture().get_image().get_data(), "Subpixel physics offsets do not move the rendered miner between grid pixels")
 	game.cursor_position = Vector2(80, 798)
 	check(game.can_place_block(game.cursor_position), "Placement reaches the final screen row")
 	check(game.placement_preview.target_rect().end.y == 800, "Placement preview clips precisely to the screen bottom")

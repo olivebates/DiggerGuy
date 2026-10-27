@@ -1,6 +1,8 @@
 class_name MineCatalog
 extends RefCounted
 
+const DEPTH_STEP := 20
+
 const ORES = [
 	{"name": "Iron", "color": "a7b4c4", "value": 3, "depth": 0},
 	{"name": "Copper", "color": "e89a68", "value": 5, "depth": 0},
@@ -37,8 +39,8 @@ const UPGRADES = [
 	{"key": "power", "name": "Mining Power", "base": 200, "max": -1, "icon": "pick"},
 	{"key": "capacity", "name": "Inventory Size", "base": 30, "max": -1, "icon": "bag"},
 	{"key": "insurance", "name": "Ore Insurance", "base": 500, "max": -1, "icon": "shield"},
-	{"key": "freeze", "name": "Freeze", "base": 1000, "max": 1, "icon": "freeze"},
-	{"key": "speed", "name": "Speedup", "base": 200, "max": 3, "icon": "speed"},
+	{"key": "freeze", "name": "Freeze", "base": 200, "max": 1, "icon": "freeze"},
+	{"key": "speed", "name": "Speedup", "base": 50, "max": 3, "icon": "speed"},
 	{"key": "lives", "name": "Extra Lives", "base": 1200, "max": -1, "icon": "heart"},
 	{"key": "blocks", "name": "Place Blocks", "base": 100, "max": -1, "icon": "block"},
 ]
@@ -49,7 +51,7 @@ static func ore_color(index: int) -> Color:
 static func price(index: int, level: int) -> int:
 	var key: String = UPGRADES[index].key
 	if key == "speed":
-		return [200, 500, 1200][clampi(level, 0, 2)]
+		return [50, 500, 1200][clampi(level, 0, 2)]
 	var amount: int = UPGRADES[index].base
 	for step in range(level):
 		if key == "lives":
@@ -65,7 +67,7 @@ static func price(index: int, level: int) -> int:
 
 static func upgrade_detail(index: int, level: int) -> String:
 	match UPGRADES[index].key:
-		"depth": return "%d → %d m" % [level * 100, (level + 1) * 100]
+		"depth": return "%d → %d m" % [level * DEPTH_STEP, (level + 1) * DEPTH_STEP]
 		"power": return "%d → %d damage" % [level + 1, level + 2]
 		"capacity": return "%d → %d spaces" % [7 + level, 8 + level]
 		"insurance": return "Keep %d → %d ores" % [3 + level, 4 + level]
@@ -73,6 +75,18 @@ static func upgrade_detail(index: int, level: int) -> String:
 		"speed": return "%dx → %dx · hold W" % [1 + level, 2 + level]
 		"lives": return "%d → %d lives / dive" % [1 + level, 2 + level]
 		"blocks": return "%d → %d blocks / dive" % [3 + level, 4 + level]
+	return ""
+
+static func upgrade_description(index: int) -> String:
+	match UPGRADES[index].key:
+		"depth": return "Unlock 20 more meters of starting depth per upgrade. Choose your starting depth with the slider before diving."
+		"power": return "Deal 1 more damage to every block you hit. Move away and back, or click again, to hit the same block again."
+		"capacity": return "Carry 1 more ore per dive. When your inventory is full, new ores stay on the ground."
+		"insurance": return "Keep 1 additional ore when you die. Your most valuable ores are saved first."
+		"freeze": return "Permanently unlock Freeze. Hold Space or use the snowflake button to stop the mine while you dig."
+		"speed": return "Unlock the next speed: 2x, 3x, then 4x. Hold W or use Speedup to use the speed selected with the slider."
+		"lives": return "Start every dive with 1 additional life. Touching an enemy or hazard removes it and costs one life."
+		"blocks": return "Place 1 more block per dive. Hold the right mouse button and drag across empty cells to build."
 	return ""
 static func ore_shape(canvas: CanvasItem, center: Vector2, index: int, scale_value: float = 1.0, rotation: float = 0.0) -> void:
 	var color := ore_color(index)

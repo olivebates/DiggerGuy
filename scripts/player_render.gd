@@ -21,8 +21,6 @@ func draw_player() -> void:
 	var p := Vector2(0, -8)
 	var walking := minf(1, absf(game.player_velocity.x) / game.WALK_SPEED)
 	var step := sin(game.walk_cycle) * walking if game.grounded else 0.15
-	var peeking: float = game.edge_timer / game.EDGE_PAUSE
-	var lamp := p + Vector2(game.facing_blend * 5, -5 + peeking)
 	# Alternating boots swing along the ground rather than moving the body collider.
 	draw_rect(Rect2(p + Vector2(-5 - step * 0.6, 4), Vector2(4, 4 - maxf(0, step) * 0.8)), Color("17232a"))
 	draw_rect(Rect2(p + Vector2(1 - step * 0.6, 4), Vector2(4, 4 - maxf(0, -step) * 0.8)), Color("17232a"))
@@ -33,5 +31,4 @@ func draw_player() -> void:
 	draw_rect(Rect2(p + Vector2(-4, -6), Vector2(9, 6)), Color("ee8b38"))
 	draw_rect(Rect2(p + Vector2(-6, -8), Vector2(11, 4)), Color("eab65c"))
 	draw_line(p + Vector2(-7, -4), p + Vector2(7, -4), Color("ffe1a0"), 2)
-	draw_circle(lamp, 2, Color("fff4cc"))
 
