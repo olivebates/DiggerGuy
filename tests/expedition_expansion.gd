@@ -94,12 +94,12 @@ func run() -> void:
 	game.finish_expedition(false)
 	check(game.mode == "results" and game.results.visible and not game.depot.visible, "Results precede depot")
 	check(game.results.report.title == "NEW DEEPEST RUN!" and game.best_depth == 100, "New record is visible and retained")
-	check(game.credits == 20 and game.inventory[0] == 1, "Milestone bonus awards once without prematurely selling haul")
-	check("Haul: 3 coins" in game.results.report.stats and "Bonus: 20 coins" in game.results.report.stats, "Results distinguish haul value and awarded bonus")
+	check(game.credits == 275 and game.inventory[0] == 1, "Milestone bonus awards once without prematurely selling haul")
+	check("Haul: 3 coins" in game.results.report.stats and "Bonus: 275 coins" in game.results.report.stats, "Results distinguish haul value and awarded bonus")
 	check("130 m" in game.results.report.next_goal and "Silver" in game.results.report.next_goal, "Results show the next discovery goal")
-	check(game.results.report.upgrade_progress == 1.0 and "Inventory Size" in game.results.report.affordable, "Chosen-upgrade progress includes retained haul and new affordability")
+	check(game.results.report.upgrade_progress == 1.0 and "Starting Depth" in game.results.report.affordable, "Chosen-upgrade progress includes retained haul and new affordability")
 	game.finish_expedition(false)
-	check(game.credits == 20, "Results cannot award milestones twice")
+	check(game.credits == 275, "Results cannot award milestones twice")
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
 	click.pressed = true
@@ -113,11 +113,11 @@ func run() -> void:
 	game.start_run()
 	game.run_peak = 100
 	game.finish_expedition(false)
-	check(game.credits == 20 and game.results.report.title == "EXPEDITION COMPLETE", "Repeating a milestone gives no duplicate reward or new record")
+	check(game.credits == 275 and game.results.report.title == "EXPEDITION COMPLETE", "Repeating a milestone gives no duplicate reward or new record")
 	fresh()
 	game.credits = 0
 	game.buy_upgrade(1)
-	check(game.tracked_upgrade == "power" and game.upgrades.power == 0, "Clicking unaffordable upgrade tracks it without charging")
+	check(game.tracked_upgrade == "capacity" and game.upgrades.power == 0, "An unaffordable purchase preserves the deliberately pinned goal")
 	fresh()
 	game.begin_departure()
 	game._physics_process(game.DEPARTURE_END + 0.01)

@@ -15,6 +15,7 @@ const DEATH_IRIS_DURATION := 0.55
 const DEATH_IRIS_HOLD := 1.5
 const DEATH_FINAL_CLOSE := 0.35
 const DEATH_BLACK_HOLD := 0.08
+const PROGRESSION_TEXT := preload("res://scripts/progression_text.gd")
 const SAVE_PATH := "user://digger_guy_save.json"
 const DEPOT_SCENE := preload("res://scenes/depot.tscn")
 
@@ -70,6 +71,11 @@ var departure_origin := Vector2.ZERO
 var floating_texts: Array[Dictionary] = []
 var best_depth := 0
 var run_peak := 0
+var run_ores_found := 0
+var run_blocks_broken := 0
+var run_end_depth := -1
+var run_materials_before: Array[int] = []
+var best_haul := 0
 var run_best_before := 0
 var run_credits_before := 0
 var run_haul_before := 0
@@ -82,6 +88,9 @@ var results: Node2D
 var results_from_death := false
 var inventory_scroll := 0
 var debug_keys: Dictionary = {}
+var depot_seen_this_session := false
+var discovered_materials: Array[int] = []
+var materials_sold: Array[int] = []
 var depot_message := "A warm lamp. A fair trade. One more expedition."
 var player := Vector2(240, 172)
 var player_velocity := Vector2.ZERO
@@ -145,6 +154,8 @@ func _ready() -> void:
 	hesitation_rng.randomize()
 	inventory.resize(MineCatalog.ORES.size())
 	inventory.fill(0)
+	materials_sold.resize(MineCatalog.ORES.size())
+	materials_sold.fill(0)
 	synth = MineSynth.new()
 	add_child(synth)
 	load_progress()
@@ -223,6 +234,7 @@ func _ready() -> void:
 	start_run()
 
 func _process(_delta: float) -> void:
+	sync_held_controls()
 	placement_preview.queue_redraw()
 	global_pixel_material.set_shader_parameter("enabled", mode not in ["depot", "results"] and not inventory_open)
 	if mode != "depot" and is_instance_valid(player_visual):
@@ -247,8 +259,13 @@ func start_run() -> void:
 	results.visible = false
 	run_best_before = best_depth
 	run_peak = selected_depth
+	run_ores_found = 0
+	run_blocks_broken = 0
+	run_end_depth = -1
 	run_credits_before = credits
 	run_haul_before = haul_value()
+	remember_inventory_materials()
+	run_materials_before = discovered_materials.duplicate()
 	run_treasure_count = 0
 	run_first_treasure = false
 	inventory_scroll = 0
@@ -261,9 +278,9 @@ func start_run() -> void:
 	# Rebuild reminders from persisted learning state, including previously dismissed ones.
 	pending_shortcuts.erase("speed")
 	pending_shortcuts.erase("freeze")
-	if rounds_started >= 2 and not speed_learned and "speed" not in pending_shortcuts:
+	if depot_seen_this_session and rounds_started >= 2 and not speed_learned and "speed" not in pending_shortcuts:
 		pending_shortcuts.append("speed")
-	if speed_learned and not freeze_learned and rounds_started >= speed_learned_round + 2:
+	if depot_seen_this_session and speed_learned and not freeze_learned and rounds_started >= speed_learned_round + 2:
 		pending_shortcuts.append("freeze")
 	shortcut_popup = not pending_shortcuts.is_empty()
 	tutorial_cell = Vector2i(-999, -999)
@@ -357,8 +374,18 @@ func current_depth() -> int:
 func is_frozen() -> bool:
 	return frozen_toggle or space_held
 
+func sync_held_controls() -> void:
+	# A key-up can be lost when focus changes during launch or a round transition.
+	# Reconcile only held controls; an intentional click-to-freeze stays frozen.
+	if space_held and not Input.is_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_SPACE):
+		space_held = false
+		freeze_use_time = 0
+	if speed_held and not Input.is_key_pressed(KEY_W) and not Input.is_physical_key_pressed(KEY_W):
+		speed_held = false
+		speed_hold_time = 0
+
 func game_speed() -> float:
-	return float(clampi(selected_speed, 1, max_speed())) if speed_held or speed_toggle else 1.0
+	return float(clampi(selected_speed, 2, max_speed())) if speed_held or speed_toggle else 1.0
 
 func show_toast(message: String, duration: float = 2.5) -> void:
 	toast = message
@@ -377,6 +404,17 @@ func _notification(what: int) -> void:
 		save_progress()
 
 func _input(event: InputEvent) -> void:
+	# Release events must reach held controls even while a modal owns other input.
+	if event is InputEventKey and not event.pressed:
+		if event.keycode == KEY_SPACE:
+			space_held = false
+			if not frozen_toggle:
+				freeze_use_time = 0
+		elif event.keycode == KEY_W:
+			speed_held = false
+			speed_hold_time = 0
+	if event is InputEventKey and event.echo and event.keycode in [KEY_SPACE, KEY_W]:
+		return
 	if handle_debug_input(event):
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
@@ -619,6 +657,7 @@ func mine_at(mouse: Vector2) -> void:
 				emit_debris(center, Color("9b8e72"), 3)
 			else:
 				broke_any = true
+				run_blocks_broken += 1
 				if result.get("treasure", false):
 					run_treasure_count += 1
 					if not treasure_seen:
@@ -860,7 +899,7 @@ func draw_tutorial() -> void:
 	if shortcut_popup:
 		draw_rect(Rect2(0, 0, 480, 800), Color(0, 0, 0, 0.8))
 		MineInk.panel(self, Rect2(24, 294, 432, 182))
-		var message := "You can press space to freeze the game" if pending_shortcuts[0] == "freeze" else "You can hold W to speed up the game"
+		var message := "You can press space to freeze time" if pending_shortcuts[0] == "freeze" else "You can hold W to speed up the game"
 		var line := ""
 		var y := 342.0
 		for word in message.split(" "):
@@ -911,6 +950,8 @@ func update_drops(delta: float, rise_speed: float) -> void:
 		if touching:
 			if inventory_count() < capacity():
 				inventory[drop.ore] += 1
+				run_ores_found += 1
+				discover_material(drop.ore)
 				check_full_inventory()
 				pickup_flights.append({"start": drop.pos, "ore": drop.ore, "t": 0.0})
 				synth.play_sound("pickup")
@@ -1140,6 +1181,7 @@ func die(reason: String) -> void:
 	if mode != "playing":
 		return
 	mode = "dying"
+	run_end_depth = current_depth()
 	run_peak = maxi(run_peak, current_depth())
 	lives = 0
 	death_reason = reason
@@ -1218,6 +1260,7 @@ func camera_offset() -> Vector2:
 	var strength := 5.0 * clampf(1.0 - age / 0.16, 0, 1)
 	return MineInk.snap(Vector2(sin(death_time * 95 + death_shake_count * 2), cos(death_time * 83)) * strength)
 func return_to_depot(from_death: bool) -> void:
+	depot_seen_this_session = true
 	if mode == "depot":
 		return
 	mode = "depot"
@@ -1238,6 +1281,9 @@ func sell_ores() -> void:
 	if inventory_count() == 0:
 		return
 	var total := haul_value()
+	remember_inventory_materials()
+	for ore in range(inventory.size()):
+		materials_sold[ore] += inventory[ore]
 	if mode == "depot":
 		depot.begin_sale(inventory.duplicate(), credits)
 	credits += total
@@ -1246,15 +1292,23 @@ func sell_ores() -> void:
 	synth.play_sound("sell")
 	save_progress()
 
+func track_upgrade(index: int) -> void:
+	if index not in MineCatalog.SHOP_UPGRADES:
+		return
+	tracked_upgrade = MineCatalog.UPGRADES[index].key
+	save_progress()
+	synth.play_sound("ui", -8)
+
 func buy_upgrade(index: int) -> void:
 	if index < 0 or index >= MineCatalog.UPGRADES.size():
 		return
 	var upgrade: Dictionary = MineCatalog.UPGRADES[index]
 	if index not in MineCatalog.SHOP_UPGRADES:
 		return
-	tracked_upgrade = upgrade.key
-	save_progress()
 	var level: int = upgrades[upgrade.key]
+	if best_depth < MineCatalog.upgrade_required_depth(upgrade.key, level):
+		depot.purchase_feedback(index, false)
+		return
 	if upgrade.max >= 0 and level >= upgrade.max:
 		return
 	var price := MineCatalog.price(index, level)
@@ -1285,7 +1339,7 @@ func save_progress() -> void:
 		return
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
-		file.store_string(JSON.stringify({"version": 8, "treasure_seen": treasure_seen, "claimed_milestones": claimed_milestones, "tracked_upgrade": tracked_upgrade, "freeze_learned": freeze_learned, "speed_learned_round": speed_learned_round, "rounds_started": rounds_started, "speed_learned": speed_learned, "credits": credits, "upgrades": upgrades, "inventory": inventory, "depth": selected_depth, "speed": selected_speed, "placement_taught": placement_taught, "tutorials": pending_shortcuts, "best": best_depth, "muted": synth.muted}))
+		file.store_string(JSON.stringify({"version": 9, "best_haul": best_haul, "discovered_materials": discovered_materials, "materials_sold": materials_sold, "treasure_seen": treasure_seen, "claimed_milestones": claimed_milestones, "tracked_upgrade": tracked_upgrade, "freeze_learned": freeze_learned, "speed_learned_round": speed_learned_round, "rounds_started": rounds_started, "speed_learned": speed_learned, "credits": credits, "upgrades": upgrades, "inventory": inventory, "depth": selected_depth, "speed": selected_speed, "placement_taught": placement_taught, "tutorials": pending_shortcuts, "best": best_depth, "muted": synth.muted}))
 
 func load_progress() -> void:
 	if test_mode or not FileAccess.file_exists(SAVE_PATH):
@@ -1298,6 +1352,7 @@ func load_progress() -> void:
 		return
 	credits = maxi(0, int(data.get("credits", 0)))
 	best_depth = maxi(0, int(data.get("best", 0)))
+	best_haul = maxi(0, int(data.get("best_haul", 0)))
 	treasure_seen = bool(data.get("treasure_seen", false))
 	var saved_upgrades = data.get("upgrades", {})
 	if saved_upgrades is Dictionary:
@@ -1309,16 +1364,17 @@ func load_progress() -> void:
 	if saved_inventory is Array:
 		for i in range(mini(inventory.size(), saved_inventory.size())):
 			inventory[i] = clampi(int(saved_inventory[i]), 0, 1000000)
+	load_material_history(data)
 	var saved_version := int(data.get("version", 1))
 	claimed_milestones.clear()
 	var saved_milestones = data.get("claimed_milestones", [])
 	if saved_milestones is Array:
 		for claimed in saved_milestones:
 			claimed_milestones.append(int(claimed))
-	if saved_version < 7:
-		for milestone in MineCatalog.MILESTONES:
-			if milestone.depth <= best_depth and milestone.depth not in claimed_milestones:
-				claimed_milestones.append(milestone.depth)
+	if saved_version < 9:
+		for reached in range(10, best_depth + 1, 10):
+			if reached not in claimed_milestones:
+				claimed_milestones.append(reached)
 	tracked_upgrade = str(data.get("tracked_upgrade", "capacity"))
 	if saved_version < 7:
 		selected_speed = 2
@@ -1328,7 +1384,7 @@ func load_progress() -> void:
 		selected_depth = MineCatalog.starting_depth(clampi(saved_depth / saved_step, 0, upgrades.depth))
 	else:
 		selected_depth = clampi(saved_depth, 0, MineCatalog.starting_depth(upgrades.depth))
-	selected_speed = clampi(int(data.get("speed", 2)), 1, max_speed())
+	selected_speed = clampi(int(data.get("speed", 2)), 2, max_speed())
 	if saved_version < 7:
 		selected_speed = 2
 	rounds_started = maxi(0, int(data.get("rounds_started", 0)))
@@ -1692,6 +1748,7 @@ func blink_closed(clock: float, offset: float) -> bool:
 func begin_departure() -> void:
 	if mode != "playing":
 		return
+	run_end_depth = current_depth()
 	mode = "leaving"
 	full_bag_time = 0
 	leave_glow = false
@@ -1777,6 +1834,7 @@ func discard_rect(slot: int) -> Rect2:
 func discard_ore(ore: int) -> bool:
 	if mode != "playing" or not inventory_open or ore < 0 or ore >= inventory.size() or inventory[ore] <= 0:
 		return false
+	discover_material(ore, false)
 	inventory[ore] -= 1
 	full_bag_time = 0
 	leave_glow = false
@@ -1826,16 +1884,20 @@ func finish_expedition(from_death: bool) -> void:
 	if mode in ["results", "depot"]:
 		return
 	results_from_death = from_death
+	remember_inventory_materials()
 	best_depth = maxi(best_depth, run_peak)
 	var milestone_bonus := 0
 	var milestones_earned := 0
+	var earned_milestones: Array[Dictionary] = []
 	var milestone_name := "No new milestone this expedition."
 	var milestone_detail := "Every deeper run brings new discoveries."
-	for milestone in MineCatalog.MILESTONES:
-		if milestone.depth <= run_peak and milestone.depth not in claimed_milestones:
-			claimed_milestones.append(milestone.depth)
+	for reached_depth in range(MineCatalog.MILESTONE_STEP, run_peak + 1, MineCatalog.MILESTONE_STEP):
+		var milestone := MineCatalog.milestone_at(reached_depth)
+		if reached_depth not in claimed_milestones:
+			claimed_milestones.append(reached_depth)
 			milestones_earned += 1
 			milestone_bonus += milestone.reward
+			earned_milestones.append(milestone.duplicate())
 			milestone_name = "%d m: %s" % [milestone.depth, milestone.name]
 			milestone_detail = milestone.detail
 	credits += milestone_bonus
@@ -1860,7 +1922,7 @@ func finish_expedition(from_death: bool) -> void:
 	for index in MineCatalog.SHOP_UPGRADES:
 		var upgrade: Dictionary = MineCatalog.UPGRADES[index]
 		var price := MineCatalog.price(index, upgrades[upgrade.key])
-		if price > run_credits_before + run_haul_before and price <= budget:
+		if best_depth >= MineCatalog.upgrade_required_depth(upgrade.key, upgrades[upgrade.key]) and price > run_credits_before + run_haul_before and price <= budget:
 			affordable.append(upgrade.name)
 	var tracked := upgrade_index(tracked_upgrade)
 	var target: Dictionary = MineCatalog.UPGRADES[tracked]
@@ -1908,9 +1970,43 @@ func finish_expedition(from_death: bool) -> void:
 	if hero_kind == "treasure" and events.is_empty():
 		fallback = {"kind": "milestone", "id": -1, "name": "Lost treasure cache", "depth": run_peak, "detail": "Treasure recovered | +%d coins" % (credits - run_credits_before), "context": "TREASURE", "value": credits - run_credits_before}
 	var equipment_next := upgrades.duplicate()
+	var collected_new: Array[int] = []
+	for ore in discovered_materials:
+		if ore not in run_materials_before:
+			collected_new.append(ore)
+	var richest := haul_value() > best_haul
+	best_haul = maxi(best_haul, haul_value())
+	if hero_kind == "record":
+		hero_title = "Your deepest expedition"
+	elif hero_kind == "treasure":
+		hero_title = "Your first treasure room"
+	elif not collected_new.is_empty():
+		hero_kind = "discovery"
+		hero_title = "%d new material%s" % [collected_new.size(), "" if collected_new.size() == 1 else "s"]
+	elif richest:
+		hero_kind = "haul"
+		hero_title = "Your richest haul"
+	else:
+		hero_title = PROGRESSION_TEXT.TITLES[rng.randi_range(0, PROGRESSION_TEXT.TITLES.size() - 1)]
+	var context := "ordinary"
+	if from_death:
+		context = "death"
+	elif run_treasure_count > 0 or run_first_treasure:
+		context = "treasure"
+	elif hero_kind == "record":
+		context = "record"
+	elif inventory_count() == 0:
+		context = "empty"
+	elif lives == 1 and max_lives() > 1:
+		context = "escape"
+	var flavor_pool: Array = PROGRESSION_TEXT.CONTEXT_FLAVOR.get(context, PROGRESSION_TEXT.FLAVOR)
+	var ore_count := 0
+	for amount in inventory:
+		ore_count += amount
 	equipment_next[target.key] += 1
 	var data := {"title": "NEW DEEPEST RUN!" if run_peak > run_best_before else "EXPEDITION COMPLETE", "stats": stats, "rewards": rewards, "next_goal": discovery_goal(), "upgrade_goal": "Goal: %s\nAfter selling: %d / %d coins" % [target.name, budget, target_price], "upgrade_progress": clampf(float(budget) / maxf(1, target_price), 0, 1), "affordable": affordable_text}
 	data.merge({"hero_kind": hero_kind, "hero_title": hero_title, "hero_detail": hero_detail, "previous_best": run_best_before, "peak_depth": run_peak, "start_depth": selected_depth, "events": events, "fallback": fallback, "funds_before": run_credits_before + run_haul_before, "funds_after": budget, "haul_change": haul_value() - run_haul_before, "bonus_earned": credits - run_credits_before, "haul_value": haul_value(), "outcome": "Saved %d ores | Lost %d" % [death_kept, death_lost] if from_death else "Safely extracted", "target_name": target.name, "target_price": target_price, "target_key": target.key, "equipment_before": upgrades.duplicate(), "equipment_after": equipment_next, "benefit": MineCatalog.upgrade_benefit(target.key, upgrades[target.key])})
+	data.merge({"end_depth": run_end_depth if run_end_depth >= 0 else run_peak, "ore_count": ore_count, "ores_found": run_ores_found, "blocks_broken": run_blocks_broken, "best_depth": best_depth, "next_milestone": MineCatalog.next_milestone(best_depth), "flavor": flavor_pool[rng.randi_range(0, flavor_pool.size() - 1)], "flavor_context": context, "new_materials": collected_new, "earned_milestones": earned_milestones, "affordable_upgrades": affordable, "from_death": from_death, "ores_lost": death_lost if from_death else 0})
 	mode = "results"
 	inventory_open = false
 	mouse_held = false
@@ -1936,6 +2032,11 @@ func handle_debug_input(event: InputEvent) -> bool:
 		return false
 	if event.keycode == KEY_M:
 		reset_progress()
+		return true
+	if event.keycode == KEY_I:
+		credits = credits + 1000000 if credits <= 9223372036853775807 else 9223372036854775807
+		show_toast("+1,000,000 coins")
+		save_progress()
 		return true
 	if event.keycode in [KEY_O, KEY_L]:
 		change_debug_depth(10 if event.keycode == KEY_O else -10)
@@ -1971,14 +2072,63 @@ func reset_progress() -> void:
 	selected_depth = 0
 	selected_speed = 2
 	best_depth = 0
+	best_haul = 0
 	rounds_started = 0
 	speed_learned = false
 	freeze_learned = false
 	speed_learned_round = -1
 	placement_taught = false
 	claimed_milestones.clear()
+	discovered_materials.clear()
+	materials_sold.fill(0)
+	depot_seen_this_session = false
 	treasure_seen = false
 	tracked_upgrade = "capacity"
 	pending_shortcuts.clear()
 	debug_keys.clear()
 	start_run()
+
+func discover_material(ore: int, persist: bool = true) -> bool:
+	if ore < 0 or ore >= MineCatalog.ORES.size() or ore in discovered_materials:
+		return false
+	discovered_materials.append(ore)
+	discovered_materials.sort_custom(func(a: int, b: int) -> bool: return MineCatalog.ORES[a].depth < MineCatalog.ORES[b].depth if MineCatalog.ORES[a].depth != MineCatalog.ORES[b].depth else a < b)
+	if persist:
+		save_progress()
+	return true
+
+func remember_inventory_materials() -> void:
+	for ore in range(inventory.size()):
+		if inventory[ore] > 0:
+			discover_material(ore, false)
+
+func next_material() -> int:
+	var next := -1
+	for ore in range(MineCatalog.ORES.size()):
+		if ore in discovered_materials:
+			continue
+		if next < 0 or MineCatalog.ORES[ore].depth < MineCatalog.ORES[next].depth:
+			next = ore
+	return next
+
+func load_material_history(data: Dictionary) -> void:
+	discovered_materials.clear()
+	materials_sold.resize(MineCatalog.ORES.size())
+	materials_sold.fill(0)
+	var discovered = data.get("discovered_materials", [])
+	if discovered is Array:
+		for ore in discovered:
+			discover_material(int(ore), false)
+	var sold = data.get("materials_sold", [])
+	if sold is Array:
+		for ore in range(mini(materials_sold.size(), sold.size())):
+			materials_sold[ore] = maxi(0, int(sold[ore]))
+			if materials_sold[ore] > 0:
+				discover_material(ore, false)
+	remember_inventory_materials()
+
+func upgrade_is_unlocked(index: int) -> bool:
+	if index not in MineCatalog.SHOP_UPGRADES:
+		return false
+	var key: String = MineCatalog.UPGRADES[index].key
+	return best_depth >= MineCatalog.upgrade_required_depth(key, upgrades[key])

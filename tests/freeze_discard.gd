@@ -45,6 +45,7 @@ func run() -> void:
 	game.space_held = false
 	game.speed_learned = true
 	game.speed_learned_round = game.rounds_started
+	game.return_to_depot(false)
 	game.start_run()
 	check(not game.shortcut_popup, "First round after learning W has no freeze reminder")
 	game.start_run()
@@ -77,6 +78,7 @@ func run() -> void:
 	game._physics_process(1.51)
 	game.speed_learned = true
 	game.speed_learned_round = game.rounds_started
+	game.return_to_depot(false)
 	game.start_run()
 	game.start_run()
 	check(not game.shortcut_popup, "Using freeze before tutorial becomes due suppresses it")

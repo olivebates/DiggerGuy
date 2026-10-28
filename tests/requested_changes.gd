@@ -14,6 +14,7 @@ func _initialize() -> void:
 	call_deferred("run")
 
 func fresh() -> void:
+	game.depot_seen_this_session = true
 	game.speed_learned = true
 	game.freeze_learned = true
 	game.pending_shortcuts.clear()

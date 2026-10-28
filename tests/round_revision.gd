@@ -55,6 +55,7 @@ func run() -> void:
 	game.synth.muted = true
 	check(game.max_speed() == 2 and game.selected_speed == 2, "Fresh game has x2 speed selected and unlocked")
 	check(game.rounds_started == 1 and not game.shortcut_popup, "First round has no speed reminder")
+	game.return_to_depot(false)
 	game.start_run()
 	check(game.shortcut_popup and game.pending_shortcuts == ["speed"], "Second round teaches W")
 	confirm()
@@ -77,8 +78,9 @@ func run() -> void:
 	fresh()
 	check(game.capacity() == 7, "Starting capacity is seven")
 	check(ceili((MineWorld.START_Y - MineWorld.TOP) / MineWorld.TILE) == 5, "Starting airspace is five tile rows")
-	check([MineCatalog.price(5, 0), MineCatalog.price(5, 1), MineCatalog.price(5, 2)] == [200, 600, 1800], "Speed price triples from 200")
+	check([MineCatalog.price(5, 0), MineCatalog.price(5, 1), MineCatalog.price(5, 2)] == [50, 600, 1800], "First Speedup upgrade costs 50; later prices retain their scaling")
 	game.credits = 10000000
+	game.best_depth = 1000
 	for purchase in range(8):
 		game.buy_upgrade(5)
 	check(game.upgrades.speed == 8 and game.max_speed() == 10, "Speed continues upgrading beyond previous cap")
@@ -88,7 +90,7 @@ func run() -> void:
 	game.inventory[0] = 4
 	game.credits = 20
 	game.return_to_depot(false)
-	check(game.depot.primary_rect == game.depot.dive_rect and game.depot.primary_label() == "Sell All", "Sell All occupies bottom dive slot")
+	check(game.depot.primary_rect == game.depot.dive_rect and game.depot.primary_label().begins_with("Sell All"), "Sell All occupies bottom dive slot")
 	game.depot.activate_primary()
 	check(game.depot.primary_label() == "Dig Deeper" and game.depot.is_selling() and game.credits == 32, "Sell replaces button immediately and credits once")
 	game.depot.activate_primary()

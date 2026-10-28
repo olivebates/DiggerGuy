@@ -214,6 +214,7 @@ func test_inventory_and_economy() -> void:
 	game.credits = 0
 	game.sell_ores()
 	check(game.credits == 92 and game.inventory_count() == 0, "Selling pays correct ore values")
+	game.best_depth = maxi(game.best_depth, 20)
 	game.buy_upgrade(2)
 	check(game.capacity() == 8 and game.credits == 72, "Capacity purchase charges 20 and adds one space")
 	game.buy_upgrade(1)
@@ -251,7 +252,7 @@ func test_inventory_and_economy() -> void:
 	game.upgrades.insurance = 0
 	game.inventory.fill(0)
 	game.load_progress()
-	check(game.credits == 940 and game.upgrades.insurance == 42 and game.inventory_count() == 45, "Credits, upgrades, and ores survive save/load")
+	check(game.credits == 945 and game.upgrades.insurance == 42 and game.inventory_count() == 45, "Credits, upgrades, and ores survive save/load")
 	game.test_mode = true
 	game.speed_learned = true
 	game.freeze_learned = true
@@ -583,7 +584,7 @@ func test_depot_and_color_updates() -> void:
 	var value: int = game.haul_value()
 	check(value == 3027, "Live ore value uses every currently held ore")
 	game.return_to_depot(false)
-	check(game.depot.screen == "depot" and game.depot.primary_label() == "Sell All", "Returning with ore opens depot with Sell All in the primary slot")
+	check(game.depot.screen == "depot" and game.depot.primary_label().begins_with("Sell All"), "Returning with ore opens depot with Sell All in the primary slot")
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
 	click.pressed = true

@@ -14,9 +14,9 @@ func _draw() -> void:
 	if not game.blink_closed(game.time, 0):
 		draw_rect(Rect2(eye, Vector2(1, 2)), Color("253038"))
 
-static func draw_equipment(canvas: CanvasItem, feet: Vector2, levels: Dictionary, scale_value: float = 2.0) -> void:
+static func draw_equipment(canvas: CanvasItem, feet: Vector2, levels: Dictionary, scale_value: float = 2.0, step: float = 0.0) -> void:
 	canvas.draw_set_transform(feet.round(), 0, Vector2.ONE * scale_value)
-	draw_body(canvas, levels, 1.0, 0.0)
+	draw_body(canvas, levels, 1.0, step)
 	canvas.draw_rect(Rect2(3, -11, 1, 2), Color("253038"))
 	canvas.draw_set_transform(Vector2.ZERO)
 

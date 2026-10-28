@@ -25,6 +25,7 @@ func _ready() -> void:
 	sounds.freeze = make_sound(360, 0.2, 0.05, -200)
 	sounds.ui = make_sound(440, 0.08, 0.01, 180)
 	sounds.sell = make_sound(550, 0.32, 0.02, 660)
+	sounds.sell_complete = make_chime([660.0, 880.0, 1046.0, 1320.0], 0.065)
 	sounds.death = make_sound(230, 0.65, 0.3, -190)
 	sounds.death_shake = make_sound(105, 0.12, 0.6, -70)
 	sounds.death_arc = make_sound(580, 0.65, 0.15, -540)
@@ -41,6 +42,9 @@ func _ready() -> void:
 	sounds.discovery_milestone = make_chime([523.0, 659.0, 784.0, 1046.0], 0.10)
 	sounds.depth_record = make_chime([392.0, 523.0, 659.0, 784.0], 0.11)
 	sounds.goal_ready = make_chime([660.0, 990.0], 0.10)
+	sounds.results_tick = make_sound(760, 0.035, 0.01, 110)
+	sounds.results_value = make_chime([660.0, 880.0, 1320.0], 0.07)
+	sounds.results_reward = make_chime([784.0, 1046.0], 0.06)
 
 func make_chime(notes: Array, note_length: float) -> AudioStreamWAV:
 	var stream := AudioStreamWAV.new()

@@ -3,15 +3,41 @@ extends RefCounted
 
 const DEPTH_STEP := 10
 const SHOP_UPGRADES := [0, 1, 2, 3, 5, 6, 7]
+const MILESTONE_STEP := 10
+
+static func milestone_reward(depth: int) -> int:
+	return maxi(1, depth / MILESTONE_STEP) * 5
+
+static func milestone_at(depth: int) -> Dictionary:
+	for feature in MILESTONES:
+		if feature.depth == depth:
+			var result: Dictionary = feature.duplicate()
+			result.reward = milestone_reward(depth)
+			return result
+	return {"depth": depth, "name": "Depth milestone", "reward": milestone_reward(depth), "detail": "A new depth reached. A one-time reward earned."}
+
+static func next_milestone(depth: int) -> Dictionary:
+	return milestone_at((maxi(0, depth) / MILESTONE_STEP + 1) * MILESTONE_STEP)
+
+static func upgrade_required_depth(key: String, level: int) -> int:
+	match key:
+		"depth": return starting_depth(level + 1)
+		"power": return 10 + level * 30
+		"capacity": return 20 + level * 30
+		"insurance": return 30 + level * 30
+		"speed": return 0 if level == 0 else 30 + level * 90
+		"blocks": return 60 + level * 90
+		"lives": return 90 + level * 90
+	return 0
 const MILESTONES := [
-	{"depth": 100, "name": "Glow gardens", "reward": 20, "detail": "Luminous roots mark sheltered pockets."},
-	{"depth": 300, "name": "Lost vaults", "reward": 40, "detail": "Treasure rooms hide gilded caches."},
-	{"depth": 360, "name": "Molten crossings", "reward": 50, "detail": "Lava basins reshape your route."},
-	{"depth": 580, "name": "Crystal groves", "reward": 75, "detail": "Crystal formations fill the caverns."},
-	{"depth": 920, "name": "Herd trails", "reward": 100, "detail": "Herds patrol the deeper cave floors."},
-	{"depth": 1640, "name": "Ancient spires", "reward": 150, "detail": "Tall stone formations mark the ancient mine."},
-	{"depth": 2600, "name": "Prismatic caverns", "reward": 225, "detail": "Prismatic ore cuts and deep wildlife await."},
-	{"depth": 4000, "name": "Deep sanctuaries", "reward": 350, "detail": "Treasure caches grow richer in the deep."},
+	{"depth": 100, "name": "Glow gardens", "reward": 50, "detail": "Luminous roots mark sheltered pockets."},
+	{"depth": 300, "name": "Lost vaults", "reward": 150, "detail": "Treasure rooms hide gilded caches."},
+	{"depth": 360, "name": "Molten crossings", "reward": 180, "detail": "Lava basins reshape your route."},
+	{"depth": 580, "name": "Crystal groves", "reward": 290, "detail": "Crystal formations fill the caverns."},
+	{"depth": 920, "name": "Herd trails", "reward": 460, "detail": "Herds patrol the deeper cave floors."},
+	{"depth": 1640, "name": "Ancient spires", "reward": 820, "detail": "Tall stone formations mark the ancient mine."},
+	{"depth": 2600, "name": "Prismatic caverns", "reward": 1300, "detail": "Prismatic ore cuts and deep wildlife await."},
+	{"depth": 4000, "name": "Deep sanctuaries", "reward": 2000, "detail": "Treasure caches grow richer in the deep."},
 ]
 
 static func ore_id(ore_name: String) -> int:
@@ -35,7 +61,7 @@ static func discovery_events(from_depth: int, to_depth: int) -> Array[Dictionary
 	for i in range(MILESTONES.size()):
 		var milestone: Dictionary = MILESTONES[i]
 		if milestone.depth > from_depth and milestone.depth <= to_depth:
-			events.append({"kind": "milestone", "id": i, "name": milestone.name, "depth": milestone.depth, "detail": milestone.detail, "value": milestone.reward})
+			events.append({"kind": "milestone", "id": i, "name": milestone.name, "depth": milestone.depth, "detail": milestone.detail, "value": milestone_reward(milestone.depth)})
 	events.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		if a.depth != b.depth:
 			return a.depth < b.depth
@@ -163,6 +189,8 @@ static func ore_color(index: int) -> Color:
 
 static func price(index: int, level: int) -> int:
 	var key: String = UPGRADES[index].key
+	if key == "speed" and level == 0:
+		return 50
 	var amount: int = UPGRADES[index].base
 	for step in range(level):
 		if key in ["lives", "speed"]:
