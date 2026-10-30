@@ -14,7 +14,7 @@ const DEATH_SHAKE_INTERVAL := 0.2
 const DEATH_IRIS_DURATION := 0.55
 const DEATH_IRIS_HOLD := 1.5
 const DEATH_FINAL_CLOSE := 0.35
-const DEATH_BLACK_HOLD := 0.08
+const DEATH_BLACK_HOLD := 1.0
 const PROGRESSION_TEXT := preload("res://scripts/progression_text.gd")
 const SAVE_PATH := "user://digger_guy_save.json"
 const DEPOT_SCENE := preload("res://scenes/depot.tscn")
@@ -30,11 +30,12 @@ var placement_contacts: Dictionary = {}
 var global_pixel_material: ShaderMaterial
 var placement_preview: Node2D
 var icon_viewport: SubViewport
-const DEPARTURE_BEAM := 0.5
-const DEPARTURE_WAIT := 0.7
-const DEPARTURE_FLOAT := 2.0
-const DEPARTURE_CLOSE := 0.55
-const DEPARTURE_END := DEPARTURE_BEAM + DEPARTURE_WAIT + DEPARTURE_FLOAT + DEPARTURE_CLOSE + 0.08
+var hud_overlay: Node2D
+const DEPARTURE_BEAM := 0.25
+const DEPARTURE_WAIT := 0.35
+const DEPARTURE_FLOAT := 1.0
+const DEPARTURE_CLOSE := 0.275
+const DEPARTURE_END := DEPARTURE_BEAM + DEPARTURE_WAIT + DEPARTURE_FLOAT + DEPARTURE_CLOSE + 0.04
 var world := MineWorld.new()
 var synth: MineSynth
 var depot: Node2D
@@ -62,6 +63,8 @@ var pending_shortcuts: Array[String] = []
 var shortcut_popup := false
 var placement_taught := false
 var tutorial_cell := Vector2i(-999, -999)
+var tutorial_prompt := ""
+var overlay_alpha := 1.0
 var block_shakes: Dictionary = {}
 var death_origin := Vector2.ZERO
 var blocks_left := 3
@@ -132,6 +135,8 @@ var death_reason := ""
 var death_kept := 0
 var death_lost := 0
 var spike_height := 0.0
+var top_spike_height := 0.0
+var top_spike_cooldown := 0.0
 var time := 0.0
 var ui_time := 0.0
 var run_time := 0.0
@@ -231,10 +236,18 @@ func _ready() -> void:
 	global_pixel_material.set_shader_parameter("world_top", MineWorld.TOP / 800.0)
 	filter.material = global_pixel_material
 	pixel_layer.add_child(filter)
+	var tooltip_layer := CanvasLayer.new()
+	tooltip_layer.layer = 101
+	add_child(tooltip_layer)
+	hud_overlay = Node2D.new()
+	hud_overlay.set_script(preload("res://scripts/game_tooltip.gd"))
+	hud_overlay.game = self
+	tooltip_layer.add_child(hud_overlay)
 	start_run()
 
 func _process(_delta: float) -> void:
 	sync_held_controls()
+	hud_overlay.queue_redraw()
 	placement_preview.queue_redraw()
 	global_pixel_material.set_shader_parameter("enabled", mode not in ["depot", "results"] and not inventory_open)
 	if mode != "depot" and is_instance_valid(player_visual):
@@ -275,14 +288,10 @@ func start_run() -> void:
 	freeze_use_time = 0
 	if speed_learned and speed_learned_round < 0:
 		speed_learned_round = rounds_started
-	# Rebuild reminders from persisted learning state, including previously dismissed ones.
-	pending_shortcuts.erase("speed")
-	pending_shortcuts.erase("freeze")
-	if depot_seen_this_session and rounds_started >= 2 and not speed_learned and "speed" not in pending_shortcuts:
-		pending_shortcuts.append("speed")
-	if depot_seen_this_session and speed_learned and not freeze_learned and rounds_started >= speed_learned_round + 2:
-		pending_shortcuts.append("freeze")
-	shortcut_popup = not pending_shortcuts.is_empty()
+	pending_shortcuts.clear()
+	shortcut_popup = false
+	tutorial_prompt = ""
+	overlay_alpha = 1
 	tutorial_cell = Vector2i(-999, -999)
 	block_shakes.clear()
 	mode = "playing"
@@ -329,6 +338,8 @@ func start_run() -> void:
 	peak_fall_speed = 0
 	landing_rings.clear()
 	spike_height = 0
+	top_spike_height = 0
+	top_spike_cooldown = 0
 	lives = max_lives()
 	hit_grace = 0
 	spike_cooldown = 0
@@ -426,6 +437,18 @@ func _input(event: InputEvent) -> void:
 		cursor_position = event.position
 	if mode != "playing":
 		return
+	if not tutorial_prompt.is_empty():
+		var wanted := KEY_W if tutorial_prompt == "speed" else KEY_SPACE
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == wanted:
+			if tutorial_prompt == "speed":
+				speed_learned = true
+				speed_learned_round = rounds_started
+			else:
+				freeze_learned = true
+			tutorial_prompt = ""
+			save_progress()
+		else:
+			return
 	if inventory_open and event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		inventory_scroll = clampi(inventory_scroll + (1 if event.button_index == MOUSE_BUTTON_WHEEL_DOWN else -1), 0, maxi(0, visible_ores().size() - 15))
 		return
@@ -462,6 +485,9 @@ func _input(event: InputEvent) -> void:
 					toggle_inventory()
 				KEY_M:
 					synth.muted = not synth.muted
+				KEY_Q:
+					if not inventory_open:
+						begin_departure()
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if not event.pressed:
 			mouse_held = false
@@ -513,12 +539,13 @@ func toggle_freeze() -> void:
 
 func _physics_process(delta: float) -> void:
 	ui_time += delta
+	overlay_alpha = move_toward(overlay_alpha, 0.0 if player.y >= MineWorld.TOP + 7 * TILE else 1.0, delta * 4)
 	for cell in block_shakes.keys():
 		block_shakes[cell] -= delta
 		invalidate_terrain_row(cell.y)
 		if block_shakes[cell] <= 0:
 			block_shakes.erase(cell)
-	if shortcut_popup or tutorial_cell.x != -999:
+	if shortcut_popup or tutorial_cell.x != -999 or not tutorial_prompt.is_empty():
 		speed_hold_time = 0
 		freeze_use_time = 0
 		return
@@ -530,14 +557,7 @@ func _physics_process(delta: float) -> void:
 			if placement_effects[cell] >= 0.12:
 				placement_effects.erase(cell)
 	if mode == "leaving":
-		var previous_departure := departure_time
 		departure_time += delta
-		var float_start := DEPARTURE_BEAM + DEPARTURE_WAIT
-		if previous_departure < float_start and departure_time >= float_start:
-			synth.play_sound("departure_float", -2)
-		var close_start := DEPARTURE_BEAM + DEPARTURE_WAIT + DEPARTURE_FLOAT
-		if previous_departure < close_start and departure_time >= close_start:
-			synth.play_sound("departure_close", -2)
 		var float_age := maxf(0, departure_time - DEPARTURE_BEAM - DEPARTURE_WAIT)
 		var lift := float_age / DEPARTURE_FLOAT
 		player = departure_origin + Vector2(0, -48 * lift)
@@ -553,6 +573,7 @@ func _physics_process(delta: float) -> void:
 	full_banner_time = maxf(0, full_banner_time - delta)
 	hit_grace = maxf(0, hit_grace - delta)
 	spike_cooldown = maxf(0, spike_cooldown - delta)
+	top_spike_cooldown = maxf(0, top_spike_cooldown - delta)
 	if mode == "dying":
 		advance_death(delta)
 		queue_redraw()
@@ -589,7 +610,7 @@ func _physics_process(delta: float) -> void:
 		var steps := maxi(1, ceili(delta * multiplier * 60))
 		for step in range(steps):
 			simulate_step(delta * multiplier / steps)
-			if mode != "playing" or tutorial_cell.x != -999:
+			if mode != "playing" or tutorial_cell.x != -999 or not tutorial_prompt.is_empty():
 				break
 	else:
 		speed_hold_time = 0
@@ -599,12 +620,12 @@ func simulate_step(delta: float) -> void:
 	time += delta
 	run_time += delta
 	var rise_speed := minf(12.0, 4.5 + current_depth() * 0.004) * 2.5
-	var rise := world.advance(delta, rise_speed)
+	var rise := world.advance(delta, rise_speed if run_blocks_broken > 0 else 0.0)
 	var carried_speed := rise / maxf(delta, 0.000001)
 	player.y -= rise
 	spawn_enemies()
 	update_player(delta)
-	if mode != "playing" or tutorial_cell.x != -999:
+	if mode != "playing" or tutorial_cell.x != -999 or not tutorial_prompt.is_empty():
 		return
 	update_drops(delta, carried_speed)
 	update_enemies(delta, carried_speed)
@@ -729,7 +750,7 @@ func invalidate_terrain_row(row: int) -> void:
 func update_terrain_cache() -> void:
 	if not is_instance_valid(terrain_root):
 		return
-	var first := maxi(0, world.cell_at(Vector2(0, MineWorld.TOP - TILE)).y)
+	var first := world.cell_at(Vector2(0, MineWorld.TOP - TILE)).y
 	var last := world.cell_at(Vector2(0, 800 + TILE)).y
 	for row in terrain_rows.keys():
 		if row < first or row > last:
@@ -774,6 +795,12 @@ func update_player(delta: float) -> void:
 	var before := player
 	var was_grounded := grounded
 	var supported := world.collides(Rect2(player + Vector2(-11.99, 16), Vector2(23.98, 0.75)))
+	if supported and not freeze_learned and approaching_hazard():
+		tutorial_prompt = "freeze"
+		return
+	if supported and not speed_learned and enclosed_walkway():
+		tutorial_prompt = "speed"
+		return
 	landing_squash = move_toward(landing_squash, 0, delta * 1.9)
 	if pending_direction != 0:
 		turn_timer = maxf(0, turn_timer - delta)
@@ -853,10 +880,48 @@ func update_player(delta: float) -> void:
 			if lives > 1:
 				world.clear_spike_contact(Rect2(player - Vector2(10, 14), Vector2(20, 30)))
 			lose_life("Caught on cave spikes")
-	elif player.y < MineWorld.TOP + 15:
+	elif player.y < MineWorld.TOP - 16:
 		lose_life("Caught by the rising mine", true)
 	elif player.y > MineWorld.BOTTOM + 16:
 		lose_life("Lost beneath the mine", true)
+
+func enclosed_walkway() -> bool:
+	var floor_cell := world.cell_at(player + Vector2(0, 17))
+	if not world.solid(floor_cell):
+		return false
+	var open_tiles := 1
+	for side in [-1, 1]:
+		var wall := false
+		for step in range(1, MineWorld.COLS):
+			var x: int = floor_cell.x + side * step
+			if x < 0 or x >= MineWorld.COLS:
+				return false
+			if world.solid(Vector2i(x, floor_cell.y - 1)):
+				wall = true
+				break
+			if not world.solid(Vector2i(x, floor_cell.y)):
+				return false
+			open_tiles += 1
+		if not wall:
+			return false
+	return open_tiles >= 2
+
+func approaching_hazard() -> bool:
+	var point := player
+	var vertical := player_velocity.y
+	for step in range(14):
+		var support := world.collides(Rect2(point + Vector2(-11, 16), Vector2(22, 1)))
+		vertical = 0.0 if support else minf(MAX_FALL_SPEED, vertical + GRAVITY * 0.05)
+		point += Vector2(direction * WALK_SPEED, vertical) * 0.05
+		var body := Rect2(point - Vector2(10, 14), Vector2(20, 30))
+		if world.touches_lava(body) or world.touches_floor_spikes(body) or body.end.y >= MineWorld.BOTTOM - 16 or body.position.y <= MineWorld.TOP + top_spike_height + 12:
+			return true
+		for enemy in enemies:
+			if body.intersects(Rect2(enemy.pos - Vector2(12, 12), Vector2(24, 24))):
+				return true
+		if world.collides(body):
+			return false
+	return false
 
 func upcoming_ledge() -> Dictionary:
 	var first := world.cell_at(player + Vector2(-11.99, 16.25))
@@ -891,27 +956,13 @@ func dangerous_drop(ledge: Dictionary) -> bool:
 	return false
 
 func draw_tutorial() -> void:
+	if not tutorial_prompt.is_empty():
+		MineInk.centered(self, "Hold W to speed up the game" if tutorial_prompt == "speed" else "Hold Space to freeze time", 320, 22, Color.WHITE)
 	if tutorial_cell.x != -999:
 		var rect := Rect2(world.cell_position(tutorial_cell), Vector2.ONE * TILE)
 		draw_rect(rect, Color(1, 0.85, 0, 0.45 + 0.15 * sin(ui_time * 6)))
 		MineInk.outline(self, rect, Color.YELLOW)
 		MineInk.centered(self, "Right click to place block", 320, 22, Color.WHITE)
-	if shortcut_popup:
-		draw_rect(Rect2(0, 0, 480, 800), Color(0, 0, 0, 0.8))
-		MineInk.panel(self, Rect2(24, 294, 432, 182))
-		var message := "You can press space to freeze time" if pending_shortcuts[0] == "freeze" else "You can hold W to speed up the game"
-		var line := ""
-		var y := 342.0
-		for word in message.split(" "):
-			var next := word if line.is_empty() else line + " " + word
-			if MineInk.FONT.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x > 388:
-				MineInk.centered(self, line, y, 15, Color.WHITE)
-				y += 26
-				line = word
-			else:
-				line = next
-		MineInk.centered(self, line, y, 15, Color.WHITE)
-		MineInk.button(self, Rect2(160, 410, 160, 44), "Confirm", true, false)
 
 func land_player(distance: float, impact_speed: float) -> void:
 	var strength := clampf((distance - 8) / 170.0, 0, 1)
@@ -1076,16 +1127,20 @@ func update_enemies(delta: float, rise_speed: float) -> void:
 			return
 
 func update_spikes(delta: float) -> void:
-	if spike_cooldown > 0:
-		spike_height = 0
-		return
-	var target := clampf((player.y - (MineWorld.BOTTOM - 98)) * 0.8, 0, 16)
+	var target := 0.0 if spike_cooldown > 0 else clampf((player.y - (MineWorld.BOTTOM - 98)) * 0.8, 0, 16)
 	spike_height = clampf(move_toward(spike_height, target, delta * (58 if target > spike_height else 20)), 0, 16)
+	var top_target := 0.0 if top_spike_cooldown > 0 else clampf((MineWorld.TOP + 98 - player.y) * 0.8, 0, 16)
+	top_spike_height = clampf(move_toward(top_spike_height, top_target, delta * (58 if top_target > top_spike_height else 20)), 0, 16)
 	if hit_grace <= 0 and spike_height > 3 and player.y + 15 >= MineWorld.BOTTOM - spike_height:
 		if lives > 1:
 			spike_height = 0
 			spike_cooldown = 1.5
 		lose_life("Caught by the bottom spikes", true)
+	if mode == "playing" and hit_grace <= 0 and top_spike_height > 3 and player.y - 15 <= MineWorld.TOP + top_spike_height:
+		if lives > 1:
+			top_spike_height = 0
+			top_spike_cooldown = 1.5
+		lose_life("Caught by the top spikes", true)
 
 func emit_debris(pos: Vector2, color: Color, count: int) -> void:
 	for i in range(count):
@@ -1639,14 +1694,17 @@ func draw_enemy(enemy: Dictionary, canvas: CanvasItem = null, presentation: bool
 			canvas.draw_rect(Rect2(-4, -2, 3, 3), color.lightened(0.35))
 
 func draw_spikes() -> void:
-	if spike_height <= 0:
-		return
-	var bottom := MineWorld.BOTTOM
-	for x in range(0, 480, 16):
-		var tip := Vector2(x + 8, bottom - floorf(spike_height / 2) * 2)
-		var base_y := minf(bottom, tip.y + 17)
-		draw_colored_polygon(PackedVector2Array([Vector2(x, base_y), tip, Vector2(x + 16, base_y)]), Color("e2a18a"))
-		draw_colored_polygon(PackedVector2Array([tip, Vector2(x + 8, base_y), Vector2(x + 16, base_y)]), Color("a9635b"))
+	for edge in [[MineWorld.BOTTOM, spike_height, -1], [MineWorld.TOP, top_spike_height, 1]]:
+		var height: float = edge[1]
+		if height <= 0:
+			continue
+		var boundary: float = edge[0]
+		var side: float = edge[2]
+		for x in range(0, 480, 16):
+			var tip := Vector2(x + 8, boundary + side * floorf(height / 2) * 2)
+			var base_y := boundary + side * maxf(0, height - 17)
+			draw_colored_polygon(PackedVector2Array([Vector2(x, base_y), tip, Vector2(x + 16, base_y)]), Color("e2a18a"))
+			draw_colored_polygon(PackedVector2Array([tip, Vector2(x + 8, base_y), Vector2(x + 16, base_y)]), Color("a9635b"))
 
 func indicator_center(index: int) -> Vector2:
 	return Vector2(64 + index * 88, 56)
@@ -1677,8 +1735,16 @@ func draw_hud() -> void:
 	draw_indicator(2, "Ores", "%d/%d" % [inventory_count(), capacity()], "", MineInk.TEXT, 1 + bag_pulse * 0.3)
 	var block_color := Color("ff6565") if blocks_left == 0 else MineInk.TEXT
 	var pulse := 1 + sin((1 - block_counter_pulse / 0.5) * PI) * 0.45 if block_counter_pulse > 0 else 1.0
-	draw_indicator(3, "Blocks", str(blocks_left), "block", block_color, pulse)
-	draw_indicator(4, "Lives", str(maxi(0, lives - 1)), "heart")
+	if upgrades.lives > 0:
+		draw_indicator(4, "Lives", str(maxi(0, lives - 1)), "heart")
+	if mode == "playing" and not inventory_open and overlay_alpha > 0:
+		var overlay_color := Color(MineInk.TEXT, overlay_alpha)
+		MineInk.centered(self, "%d m" % current_depth(), 778, 32, overlay_color)
+		var amount := str(blocks_left)
+		var amount_size := roundi(20 * pulse)
+		var amount_width := MineInk.FONT.get_string_size(amount, HORIZONTAL_ALIGNMENT_LEFT, -1, amount_size).x
+		MineInk.text(self, amount, Vector2(466 - amount_width, 778), amount_size, Color(block_color, overlay_alpha))
+		MineInk.icon(self, "block", Vector2(450 - amount_width, 771), Color(block_color, overlay_alpha), pulse)
 	for pair in [[speed_rect, "speed"], [freeze_rect, "freeze"], [bag_rect, "bag"], [home_rect, "home"]]:
 		var rect: Rect2 = home_button_rect() if pair[1] == "home" else pair[0]
 		var active: bool = (pair[1] == "speed" and game_speed() > 1) or (pair[1] == "freeze" and is_frozen()) or (pair[1] == "bag" and inventory_open)
@@ -1695,6 +1761,17 @@ func draw_hud() -> void:
 				MineInk.outline(self, outline_rect.grow(-4), MineInk.LINE)
 		if active:
 			draw_rect(Rect2(rect.position + Vector2(4, 4), Vector2(2, 2)), MineInk.TEXT)
+
+func draw_game_tooltip(canvas: CanvasItem) -> void:
+	for entry in [[speed_rect, "[W] Speed up"], [freeze_rect, "[Space] Freeze"], [bag_rect, "[E] Satchel"], [home_button_rect(), "[Q] Leave"]]:
+		if not Rect2(entry[0]).has_point(cursor_position):
+			continue
+		var label: String = entry[1]
+		var width := MineInk.FONT.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 20
+		var pos := Vector2(clampf(cursor_position.x, 8, 472 - width), cursor_position.y + 20)
+		MineInk.panel(canvas, Rect2(pos, Vector2(width, 32)))
+		MineInk.text(canvas, label, pos + Vector2(10, 21), 13)
+		return
 
 func cursor_center() -> Vector2:
 	return MineInk.snap(cursor_position)
@@ -1794,6 +1871,7 @@ func draw_death() -> void:
 		return
 	if progress >= 1:
 		draw_rect(Rect2(0, 0, 480, 800), Color.BLACK)
+		MineInk.centered(self, "%d ores lost" % death_lost, 416, 34, Color.WHITE)
 		return
 	var center := death_origin.clamp(Vector2.ZERO, Vector2(480, 800))
 	var radius := 0.0

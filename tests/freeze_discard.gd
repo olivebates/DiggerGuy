@@ -49,10 +49,10 @@ func run() -> void:
 	game.start_run()
 	check(not game.shortcut_popup, "First round after learning W has no freeze reminder")
 	game.start_run()
-	check(game.shortcut_popup and game.pending_shortcuts == ["freeze"], "Freeze reminder starts two rounds after learning W")
+	check(not game.shortcut_popup, "Freeze is taught by a hazard rather than a startup reminder")
 	confirm()
 	game.start_run()
-	check(game.shortcut_popup and game.pending_shortcuts == ["freeze"], "Freeze reminder repeats until used")
+	check(not game.shortcut_popup, "Unlearned freeze does not create a startup dialog")
 	confirm()
 	game.frozen_toggle = true
 	game._physics_process(1.5)
@@ -140,7 +140,7 @@ func run() -> void:
 	check(game.synth.voice_index == voices, "Float sound waits for upward movement")
 	game._physics_process(0.02)
 	game._physics_process(0.02)
-	check(game.synth.voice_index == voices + 1 and game.synth.voices[voices % 8].stream == game.synth.sounds.departure_float, "Float sound fires once at launch")
+	check(game.synth.voice_index == voices, "Floating on extraction is silent")
 	for extra_lives in [0, 1]:
 		fresh()
 		game.lives = 1 + extra_lives

@@ -60,7 +60,7 @@ func run() -> void:
 	var scroll_before: float = game.world.scroll
 	for frame in range(60):
 		game._physics_process(1.0 / 60)
-	check(game.run_time > 0.9 and game.world.scroll > scroll_before, "A new round immediately advances simulation and terrain")
+	check(game.run_time > 0.9 and game.world.scroll == scroll_before, "A new round simulates the miner but waits for a broken block before rising")
 	print("Startup controls: %d checks, %d failures" % [checks, failures])
 	game.queue_free()
 	await process_frame

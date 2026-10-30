@@ -701,7 +701,7 @@ func test_speed_spikes_and_new_death() -> void:
 	game.inventory_open = false
 	key.keycode = KEY_Q
 	game._input(key)
-	check(game.mode == "playing", "Q has no action")
+	check(game.mode == "leaving", "Q starts the extraction shown in its hover tooltip")
 	click.position = game.home_rect.get_center()
 	game._input(click)
 	game._physics_process(game.DEPARTURE_END + 0.01)

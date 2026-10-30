@@ -56,7 +56,7 @@ func run() -> void:
 		var position: Vector2 = game.player
 		var scroll: float = game.world.scroll
 		game._physics_process(1.0)
-		check(game.shortcut_popup and game.player == position and game.world.scroll == scroll, "First run pauses for " + ability)
+		check(not game.shortcut_popup and game.world.scroll == scroll, "First run has no startup popup for " + ability)
 		var click := InputEventMouseButton.new()
 		click.position = Vector2(240, 432)
 		click.button_index = MOUSE_BUTTON_LEFT

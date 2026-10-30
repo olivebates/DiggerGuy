@@ -15,8 +15,8 @@ const MATERIAL_TOOLTIP := Rect2(28, 494, 424, 154)
 const SUMMARY_SIZE := 22
 const VALUE_START := 1.3
 const VALUE_END := 2.1
-const REWARD_START := 0.7
-const REWARD_END := 2.5
+const REWARD_START := VALUE_END + 0.3
+const REWARD_END := 4.0
 
 var game: Node
 var age := 0.0
@@ -120,7 +120,7 @@ func build_timeline() -> void:
 				record_at = lerpf(segment.start, segment.end, t)
 				break
 	build_reward_beats()
-	finish_time = 3.0
+	finish_time = REWARD_END + 0.9 if not reward_beats.is_empty() else 3.0
 
 func build_reward_beats() -> void:
 	reward_beats.clear()
@@ -349,15 +349,15 @@ func milestone_state() -> Dictionary:
 		milestone = reward_beats[active]
 	var goal := int(milestone.depth)
 	var previous := goal - MineCatalog.MILESTONE_STEP
-	var depth := mini(goal, maxi(int(report.previous_best), roundi(depth_at())))
-	if age >= map_finish:
-		depth = mini(goal, int(report.best_depth))
+	var fill_start := REWARD_START if reward_beats.is_empty() else REWARD_END + 0.22
+	var fill := smoothstep(0, 1, clampf((age - fill_start) / 0.5, 0, 1))
+	var depth := mini(goal, roundi(lerpf(report.previous_best, report.best_depth, fill)))
 	var complete := active >= 0 and age >= reward_beat_time(active)
 	if active >= 0:
 		previous = int(report.earned_milestones[0].depth) - MineCatalog.MILESTONE_STEP if active == 0 else int(reward_beats[active - 1].depth)
 		var start := REWARD_START if active == 0 else REWARD_START + (REWARD_END - REWARD_START) * active / reward_beats.size()
 		var t := clampf((age - start) / maxf(0.01, reward_beat_time(active) - start), 0, 1)
-		depth = roundi(lerpf(previous, goal, smoothstep(0, 1, t)))
+		depth = roundi(lerpf(maxi(previous, int(report.previous_best)), goal, smoothstep(0, 1, t)))
 	var old_progress := clampf(float(int(report.previous_best) - previous) / maxi(1, goal - previous), 0, 1)
 	var progress := maxf(old_progress, clampf(float(depth - previous) / maxi(1, goal - previous), 0, 1))
 	var run_depth := int(report.get("end_depth", report.peak_depth))
@@ -392,24 +392,53 @@ func draw_next_milestone() -> void:
 			MineInk.text(self, "+%d" % int(reward_beats[i].reward), pos, 12, MineInk.TEXT)
 
 func draw_run_stats() -> void:
-	var lines := ["%d ores found" % stat_count(int(report.get("ores_found", report.get("ore_count", 0))), 0.4, 0.6), "%d blocks broken" % stat_count(int(report.get("blocks_broken", 0)), 0.65, 0.6), "%d meters" % stat_count(maxi(0, int(report.peak_depth) - int(report.start_depth)), 0.9, 0.6), "Value: %d coins" % stat_count(int(report.haul_value), VALUE_START, VALUE_END - VALUE_START)]
+	var ores: int = report.get("ore_count", 0) if report.get("from_death", false) else report.get("ores_found", report.get("ore_count", 0))
+	var lines := ["%d ores found" % stat_count(ores, 0.4, 0.6), "%d blocks broken" % stat_count(int(report.get("blocks_broken", 0)), 0.65, 0.6), "%d meters" % stat_count(maxi(0, int(report.peak_depth) - int(report.start_depth)), 0.9, 0.6), "Value: %d coins" % stat_count(int(report.haul_value), VALUE_START, VALUE_END - VALUE_START)]
 	for i in range(lines.size()):
 		var y := 338 + i * 29 + (12 if i == 3 else 0)
 		if age < 0.4 + i * 0.25:
 			continue
-		var bounce := -sin(clampf((age - VALUE_END) / 0.3, 0, 1) * PI) * 4 if i == 3 else 0.0
-		MineInk.fitted_text(self, lines[i], Vector2(66, y + bounce), 378, SUMMARY_SIZE if i == 3 else 16, MineInk.GOLD if i == 3 else MineInk.TEXT)
-		if i == 0:
+		if i == 3:
+			var target := "Value: %d coins" % int(report.haul_value)
+			var size := fit_size(target, 378, SUMMARY_SIZE)
+			var target_width := MineInk.FONT.get_string_size(target, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+			var width := MineInk.FONT.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+			var anchor := Vector2(66 + target_width * 0.5, y - size * 0.35)
+			draw_set_transform(anchor, 0, Vector2.ONE * value_scale())
+			MineInk.text(self, lines[i], Vector2(-width * 0.5, size * 0.35), size, MineInk.GOLD)
+			draw_set_transform(Vector2.ZERO)
+		else:
+			MineInk.fitted_text(self, lines[i], Vector2(66, y), 378, 16)
+		if i == 0 and int(report.get("ores_lost", 0)) > 0:
 			var lost := "(Lost: %d ores)" % int(report.get("ores_lost", 0))
-			var lost_width := MineInk.FONT.get_string_size(lost, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-			MineInk.text(self, lost, Vector2(444 - lost_width, y), 11, MineInk.MUTED)
+			var found_width := MineInk.FONT.get_string_size(lines[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+			MineInk.text(self, lost, Vector2(76 + found_width, y), 11, MineInk.MUTED)
 	if age >= 1.15:
 		draw_line(Vector2(36, 409), Vector2(444, 409), MineInk.LINE, 1)
+
+func value_scale(clock: float = -1) -> float:
+	var at := age if clock < 0 else clock
+	return 1 + sin(clampf((at - VALUE_END) / 0.3, 0, 1) * PI) * 0.12
+
+func draw_milestone_confetti(canvas: CanvasItem) -> void:
+	for beat in range(reward_beats.size()):
+		var elapsed := age - reward_beat_time(beat)
+		if elapsed < 0 or elapsed > 0.9:
+			continue
+		for i in range(28):
+			var source := Vector2(40 + posmod(i * 73 + beat * 29, 400), 560)
+			var velocity := Vector2(posmod(i * 37, 140) - 70, -75 - posmod(i * 19, 80))
+			var point := source + velocity * elapsed + Vector2(0, 160 * elapsed * elapsed)
+			var colors := [MineInk.GOLD, Color("83d990"), Color("ff8e75"), Color("8ccfe8")]
+			canvas.draw_set_transform(point, elapsed * (4 if i % 2 == 0 else -4))
+			canvas.draw_rect(Rect2(-2, -2, 4, 6), Color(colors[i % 4], 1 - elapsed / 0.9))
+	canvas.draw_set_transform(Vector2.ZERO)
 
 func draw_pixel_graphics(canvas: CanvasItem) -> void:
 	if report.is_empty():
 		return
 	if age >= STEP * 3 and hovered_material() < 0:
+		draw_milestone_confetti(canvas)
 		MineInk.icon(canvas, "coin", Vector2(262, 532), MineInk.GOLD, 0.7)
 		var state := milestone_state()
 		if state.complete:

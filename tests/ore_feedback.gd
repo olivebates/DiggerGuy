@@ -111,10 +111,10 @@ func run() -> void:
 	game.begin_departure()
 	voices = game.synth.voice_index
 	game._physics_process(game.DEPARTURE_BEAM + game.DEPARTURE_WAIT + game.DEPARTURE_FLOAT - 0.01)
-	check(game.synth.voice_index == voices + 1, "Only the floating sound plays before circle")
+	check(game.synth.voice_index == voices, "Departure stays silent before the circle")
 	game._physics_process(0.02)
 	game._physics_process(0.02)
-	check(game.synth.voice_index == voices + 2, "Departure circle sound plays exactly once")
+	check(game.synth.voice_index == voices, "Departure circle stays silent")
 	print("Ore feedback: %d checks, %d failures" % [checks, failures])
 	for voice in game.synth.voices:
 		voice.stop()

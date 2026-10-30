@@ -57,10 +57,10 @@ func run() -> void:
 	check(game.rounds_started == 1 and not game.shortcut_popup, "First round has no speed reminder")
 	game.return_to_depot(false)
 	game.start_run()
-	check(game.shortcut_popup and game.pending_shortcuts == ["speed"], "Second round teaches W")
+	check(not game.shortcut_popup and game.pending_shortcuts.is_empty(), "Second round has no startup popup")
 	confirm()
 	game.start_run()
-	check(game.shortcut_popup, "Reminder repeats while W remains unlearned")
+	check(not game.shortcut_popup, "Unlearned W is taught in context rather than at round start")
 	confirm()
 	fresh()
 	game.speed_learned = false

@@ -151,7 +151,7 @@ func run() -> void:
 	check(not game.shortcut_popup, "Returning player sees no startup reminder before a depot visit this session")
 	game.return_to_depot(false)
 	game.start_run()
-	check(game.shortcut_popup and game.pending_shortcuts == ["speed"], "W reminder appears after visiting depot")
+	check(not game.shortcut_popup, "Depot visit does not create startup W reminders")
 	game.speed_learned = true
 	game.speed_learned_round = 0
 	game.depot_seen_this_session = false
@@ -159,7 +159,7 @@ func run() -> void:
 	check(not game.shortcut_popup, "Freeze reminder also respects the session depot gate")
 	game.return_to_depot(false)
 	game.start_run()
-	check(game.shortcut_popup and game.pending_shortcuts == ["freeze"], "Freeze reminder becomes eligible after depot visit")
+	check(not game.shortcut_popup, "Depot visit does not create startup freeze reminders")
 	game.shortcut_popup = false
 	cash = game.credits
 	event_key(KEY_I)

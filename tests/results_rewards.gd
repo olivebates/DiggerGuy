@@ -47,10 +47,10 @@ func run() -> void:
 	check(results.report.hero_title == "Your deepest expedition", "Depth record earns a specific title")
 	check(results.report.flavor_context == "record" and results.report.flavor in MineProgressionText.CONTEXT_FLAVOR.record, "Record flavor matches the run")
 	check(results.report.earned_milestones.size() == 3 and game.credits == cash + 180, "Three first-time milestones pay exactly once")
-	check(results.displayed_bonus(0) == 0 and results.displayed_bonus(3) == 180, "Reward flights settle to the real milestone bonus")
+	check(results.displayed_bonus(0) == 0 and results.displayed_bonus(results.finish_time) == 180, "Reward flights settle to the real milestone bonus")
 	check(results.displayed_bonus(results.reward_beat_time(0) + 0.1) == 0 and results.displayed_bonus(results.reward_beat_time(0) + 0.23) == 55, "Bonus counter waits for the reward flight to land")
 	check(results.stat_count(60, 1.3, 0.8, 1.3) == 0 and results.stat_count(60, 1.3, 0.8, 1.7) == 30 and results.stat_count(60, 1.3, 0.8, 2.1) == 60, "Count-up starts at zero, passes intermediate value, ends exactly")
-	check(results.finish_time == 3.0 and results.record_at > 0 and results.record_at < results.map_finish, "Record crossing and entire sequence finish within three seconds")
+	check(results.finish_time == results.REWARD_END + 0.9 and results.record_at > 0 and results.record_at < results.map_finish, "Record crossing precedes the celebration sequence ending")
 	check(absf(results.depth_at(results.record_at) - 100) < 0.1, "Record celebration occurs at the actual old-best crossing")
 	check(results.SUMMARY_SIZE == 22, "Value and milestone use the same smaller type size")
 	var carried: Array = game.inventory.duplicate()
@@ -103,8 +103,8 @@ func run() -> void:
 	check(results.report.flavor_context == "treasure", "Treasure finds have their own flavor")
 	prepare(0, 1000)
 	game.finish_expedition(false)
-	check(results.reward_beats.size() == 5 and results.displayed_bonus(3) == 25250, "Long runs group payouts into five beats without losing a coin")
-	check(results.depth_at(3) == 1000 and results.finish_time == 3, "A large number of discoveries cannot lengthen the sequence")
+	check(results.reward_beats.size() == 5 and results.displayed_bonus(results.finish_time) == 25250, "Long runs group payouts into five beats without losing a coin")
+	check(results.depth_at(3) == 1000 and results.finish_time == results.REWARD_END + 0.9, "A large number of discoveries cannot lengthen the sequence")
 	prepare(100, 50)
 	game.credits = 15
 	game.run_credits_before = 15
